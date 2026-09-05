@@ -62,6 +62,25 @@
   function setStatus(t) { $("status").textContent = t; }
   function addEvent(line) { const el = $("events"); el.textContent += line + "\n"; el.scrollTop = el.scrollHeight; }
 
+  /** IPC 包装：25 秒超时兜底，永不“无限读取中”。 */
+  function call(channel, ...args) {
+    return new Promise((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve({ ok: false, error: "等待主进程超时（可能卡住），可点重试" });
+      }, 25000);
+      api.invoke(channel, ...args).then(
+        (result) => { if (!done) { done = true; clearTimeout(timer); resolve(result); } },
+        (error) => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, error: String((error && error.message) || error) }); } }
+      );
+    });
+  }
+  function errHtml(text, retryFn) {
+    return `<div class="card">加载失败：${esc(text)}<br/><br/><button onclick="${retryFn}()">重试</button></div>`;
+  }
+
   api.onEvent((p) => {
     if (p.kind === "phase") setStatus(p.text);
     else if (p.kind === "line") addEvent(p.text);
@@ -70,8 +89,8 @@
   });
 
   async function refresh() {
-    const res = await api.invoke("release:info");
-    if (!res.ok) { setStatus("读取失败"); return; }
+    const res = await call("release:info");
+    if (!res.ok) { $("kv").innerHTML = errHtml(res.error, "refresh"); setStatus(""); return; }
     if (!res.available) {
       $("kv").innerHTML = `<div class="warn">当前不是开发目录（未找到 .git）。<br/>安装版请用 GitHub 网页发布：仓库 Actions → release → Run workflow。<br/>开发发布请在项目目录运行 <code>npm start</code> 打开本面板。</div>`;
       $("meta").textContent = res.reason || "";

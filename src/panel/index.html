@@ -94,6 +94,25 @@
   const market = { query: "", page: 1, total: 0, per: 12 };
   let lastResults = [];
 
+  /** IPC 包装：25 秒超时兜底，永不“无限读取中”。 */
+  function call(channel, ...args) {
+    return new Promise((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve({ ok: false, error: "等待主进程超时（可能卡住），可点重试" });
+      }, 25000);
+      api.invoke(channel, ...args).then(
+        (result) => { if (!done) { done = true; clearTimeout(timer); resolve(result); } },
+        (error) => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, error: String((error && error.message) || error) }); } }
+      );
+    });
+  }
+  function errHtml(text, retryFn) {
+    return `<div class="empty">${esc(text)}<br/><br/><button onclick="${retryFn}()">重试</button></div>`;
+  }
+
   function setStatus(text) { $("status").textContent = text; }
   function addEvent(line) { const el = $("events"); el.textContent += line + "\n"; el.scrollTop = el.scrollHeight; }
   function pill(item) {
@@ -132,8 +151,8 @@
   async function loadMarket() {
     const box = $("market-results");
     box.innerHTML = `<div class="empty">${market.query === "" ? "加载热门插件…" : "搜索中…"}</div>`;
-    const res = await api.invoke("plugins:search", market.query, market.page);
-    if (!res.ok) { box.innerHTML = `<div class="empty">加载失败：${esc(res.error)}</div>`; return; }
+    const res = await call("plugins:search", market.query, market.page);
+    if (!res.ok) { box.innerHTML = errHtml(`加载失败：${esc(res.error)}`, "loadMarket"); return; }
     market.total = res.total ?? 0;
     lastResults = res.results;
     $("market-count").textContent = market.query === "" ? "热门（按相关度/热度）" : `“${esc(market.query)}” 共 ${market.total} 个结果`;
@@ -183,8 +202,8 @@
   async function renderInstalled() {
     const view = $("view-installed");
     setStatus("读取插件清单…");
-    const res = await api.invoke("plugins:list");
-    if (!res.ok) { view.innerHTML = `<div class="empty">读取失败：${esc(res.error)}</div>`; setStatus(""); return; }
+    const res = await call("plugins:list");
+    if (!res.ok) { view.innerHTML = errHtml(`读取失败：${esc(res.error)}`, "renderInstalled"); setStatus(""); return; }
     const info = res.info;
     const items = info.inventory;
     view.innerHTML = `
@@ -279,7 +298,7 @@
   });
 
   (async () => {
-    const info = await api.invoke("plugins:info");
+    const info = await call("plugins:info");
     if (info.ok) {
       const core = info.core ? ` ｜ 内核 dsh ${info.core.dsh ?? "?"} · cordis ${info.core.cordis ?? "?"}（随附 @deepseek-ai 包 ${info.core.scopePackages ?? "?"} 个）` : "";
       $("meta").textContent = `DSH_HOME: ${info.home} ｜ profile: ${info.profile} ｜ 桌面版 ${info.appVersion} ｜ Node ${info.node}${core}`;

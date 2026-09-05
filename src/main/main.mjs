@@ -19,6 +19,7 @@
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, Notification, shell } from "electron";
 import { dirname, join } from "node:path";
@@ -38,6 +39,8 @@ const RELEASE_FILE = fileURLToPath(new URL("../release/index.html", import.meta.
 const RELEASE_PRELOAD = fileURLToPath(new URL("../preload/preload-release.cjs", import.meta.url));
 // The dev repository this app runs from (exists only in source checkouts).
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const HAS_GIT = existsSync(join(REPO_ROOT, ".git"));
+const RELEASES_URL = "https://github.com/well74741/dsh-desktop/releases/latest";
 const APP_NAME = "DSH Studio";
 // Embedded 16x16 fallback (bright glyph) in case the icon file is unavailable.
 const TRAY_FALLBACK_B64 =
@@ -439,10 +442,19 @@ function buildTray() {
 			label: "插件市场…",
 			click: () => openPluginPanel()
 		},
-		{
-			label: "发布中心…（开发）",
-			click: () => openReleasePanel()
-		},
+		...(HAS_GIT
+			? [
+					{
+						label: "发布中心…（开发）",
+						click: () => openReleasePanel()
+					}
+				]
+			: [
+					{
+						label: "发布新版本（网页 Run workflow）",
+						click: () => void shell.openExternal("https://github.com/well74741/dsh-desktop/actions")
+					}
+				]),
 		{
 			label: "开机自启",
 			type: "checkbox",
@@ -609,7 +621,9 @@ function buildAppMenu() {
 			label: "文件",
 			submenu: [
 				{ label: "插件市场…", click: () => openPluginPanel() },
-				{ label: "发布中心…（开发）", click: () => openReleasePanel() },
+				...(HAS_GIT
+					? [{ label: "发布中心…（开发）", click: () => openReleasePanel() }]
+					: [{ label: "发布新版本（网页 Run workflow）", click: () => void shell.openExternal("https://github.com/well74741/dsh-desktop/actions") }]),
 				{ type: "separator" },
 				{
 					label: "在默认浏览器中打开（网页模式）",
