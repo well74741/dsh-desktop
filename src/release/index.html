@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
+<title>DSH Studio 发布中心</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 "Segoe UI", system-ui, sans-serif; background: #111318; color: #d7dbe3;
+         display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 12px 16px; border-bottom: 1px solid #232733; background: #161a22; }
+  header h1 { margin: 0 0 6px; font-size: 15px; color: #fff; }
+  #meta { color: #8b93a5; font-size: 12px; word-break: break-all; }
+  .bar { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #232733; align-items: center; flex-wrap: wrap; }
+  .bar button { background: #1e2430; color: #dfe3ec; border: 1px solid #2f3647; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  .bar button:hover { background: #272f3f; }
+  .bar button.primary { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
+  .bar button.danger { color: #ff9d5c; border-color: #5c3c1e; }
+  .bar input[type="text"] { flex: 1 1 240px; max-width: 420px; background: #0d0f13; color: #e6e9f0;
+        border: 1px solid #2c3140; border-radius: 6px; padding: 7px 10px; }
+  .bar select { background: #0d0f13; color: #e6e9f0; border: 1px solid #2c3140; border-radius: 6px; padding: 7px; }
+  main { flex: 1; overflow: auto; padding: 12px 16px; }
+  .card { background: #161a22; border: 1px solid #232733; border-radius: 8px; padding: 12px; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; }
+  .kv b { color: #98a0b3; font-weight: 500; }
+  #events { background: #0b0d10; border: 1px solid #232733; border-radius: 6px; margin: 10px 16px; padding: 8px 12px;
+            height: 150px; overflow: auto; font: 11px/1.5 Consolas, monospace; color: #9fd8c0; white-space: pre-wrap; }
+  #status { margin: 0 16px 12px; color: #8b93a5; font-size: 12px; }
+  .warn { color: #e0b45c; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DSH Studio · 发布中心</h1>
+  <div id="meta">读取中…</div>
+</header>
+<div class="bar">
+  <button class="primary" id="btn-push">提交并推送代码</button>
+  <input id="commit-msg" type="text" placeholder="提交说明（必填）" value="chore: update" />
+  <span style="color:#8b93a5">｜发布新版本：</span>
+  <select id="bump-kind">
+    <option value="patch">patch (0.1.x)</option>
+    <option value="minor">minor (0.x.0)</option>
+    <option value="major">major (x.0.0)</option>
+  </select>
+  <button id="btn-publish" class="danger">发布并推送</button>
+  <button id="btn-actions">打开 Actions</button>
+  <button id="btn-refresh">刷新</button>
+</div>
+<main><div class="card"><div class="kv" id="kv"></div></div></main>
+<div id="events">— 日志 —</div>
+<div id="status"></div>
+<script>
+  const api = window.dshRelease;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function setStatus(t) { $("status").textContent = t; }
+  function addEvent(line) { const el = $("events"); el.textContent += line + "\n"; el.scrollTop = el.scrollHeight; }
+
+  api.onEvent((p) => {
+    if (p.kind === "phase") setStatus(p.text);
+    else if (p.kind === "line") addEvent(p.text);
+    else if (p.kind === "out") addEvent(p.text);
+    else if (p.kind === "err") addEvent("!! " + p.text);
+  });
+
+  async function refresh() {
+    const res = await api.invoke("release:info");
+    if (!res.ok) { setStatus("读取失败"); return; }
+    if (!res.available) {
+      $("kv").innerHTML = `<div class="warn">当前不是开发目录（未找到 .git）。<br/>安装版请用 GitHub 网页发布：仓库 Actions → release → Run workflow。<br/>开发发布请在项目目录运行 <code>npm start</code> 打开本面板。</div>`;
+      $("meta").textContent = res.reason || "";
+      $("btn-push").disabled = true;
+      $("btn-publish").disabled = true;
+      return;
+    }
+    $("kv").innerHTML = `
+      <b>工作目录</b><span>${esc(res.root)}</span>
+      <b>当前版本</b><span>${esc(res.version ?? "?")}（最近标签 ${esc(res.lastTag)}）</span>
+      <b>分支/远端</b><span>${esc(res.branch)} → ${esc(res.remote)}</span>
+      <b>工作区</b><span class="${res.dirty > 0 ? "warn" : ""}">${esc(res.statusText)}</span>`;
+    $("meta").textContent = `发布方式：点「发布并推送」= 升级版本→提交→打标签→推送（Actions 自动构建发布）。推送会弹出 GitHub 登录。`;
+    $("btn-push").disabled = false;
+    $("btn-publish").disabled = res.dirty > 0;
+  }
+
+  async function pushCode() {
+    const msg = $("commit-msg").value.trim();
+    if (!msg) { setStatus("请填写提交说明"); return; }
+    const res = await api.invoke("release:push", msg);
+    setStatus(res.ok ? "推送完成 ✅" : `失败: ${res.error}`);
+    if (res.ok) await refresh();
+  }
+
+  async function publish() {
+    const kind = $("bump-kind").value;
+    if (!confirm(`发布 ${kind} 版本？将：升级版本号→提交→打标签→推送，Actions 会自动构建发布。`)) return;
+    addEvent(`>> 发布 ${kind} …`);
+    const res = await api.invoke("release:publish", kind);
+    setStatus(res.ok ? `已推送 ${res.version}，Actions 构建中…` : `失败: ${res.error}`);
+    if (res.ok) await refresh();
+  }
+
+  $("btn-push").addEventListener("click", pushCode);
+  $("btn-publish").addEventListener("click", publish);
+  $("btn-actions").addEventListener("click", () => api.invoke("release:open-actions"));
+  $("btn-refresh").addEventListener("click", refresh);
+  refresh();
+</script>
+</body>
+</html>

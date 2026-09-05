@@ -2,6 +2,7 @@ node_modules/
 dist/
 out/
 release/
+!src/release/
 *.log
 run-*.out.log
 run-*.err.log
