@@ -1,9 +1,12 @@
 @echo off
-rem DSH Studio release helper — double-click this, type a version, done.
+rem 一键发版：提交改动 + 升级版本 + 打标签 + 上传，Actions 自动构建发布（双击本文件即可）
 cd /d "%~dp0"
-echo DSH Studio 发布助手
-echo 工作区需已提交（未提交的改动会中止）。
-set /p NEXT=请输入新版本号（如 0.2.0；直接回车 = 自动补一版）: 
-call node scripts/release.mjs %NEXT%
+echo ============================================
+echo  DSH Studio - 一键发版
+echo  1) 会先提交未上传的改动
+echo  2) 升级版本号并打标签上传
+echo  3) GitHub Actions 自动构建发布到 Releases
+echo ============================================
+call node scripts/do-release.mjs
 echo.
 pause
