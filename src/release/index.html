@@ -49,6 +49,7 @@
   <button id="btn-net">网络检查</button>
   <button id="btn-pull">拉取远端</button>
   <button id="btn-actions">打开 Actions</button>
+  <button id="btn-status">构建状态</button>
   <button id="btn-choose">选择项目…</button>
   <button id="btn-refresh">刷新</button>
 </div>
@@ -128,8 +129,8 @@
     if (!confirm(`发布“${kind}”版本？将：升级版本号→提交→打标签→推送，Actions 会自动构建发布。`)) return;
     addEvent(`>> 发布 ${kind} …`);
     const res = await api.invoke("release:publish", kind);
-    setStatus(res.ok ? `已推送 ${res.version}，Actions 构建中…` : `失败: ${res.error}`);
-    if (res.ok) await refresh();
+    setStatus(res.ok ? `已推送 ${res.version}，正在观察构建状态…` : `失败: ${res.error}`);
+    if (res.ok) { await refresh(); void pollStatusUntilSettled(); }
   }
 
   async function netCheck() {
@@ -154,11 +155,29 @@
     await refresh();
   }
 
+  let statusTimer = null;
+  async function refreshStatus() {
+    const r = await call("release:status");
+    const text = r.ok ? `构建状态：${r.state}` : `构建状态：无法获取（${r.error}）`;
+    setStatus(text);
+    return r.ok ? r.state : null;
+  }
+  async function pollStatusUntilSettled() {
+    clearInterval(statusTimer);
+    const tries = 20; let i = 0;
+    statusTimer = setInterval(async () => {
+      i += 1;
+      const state = await refreshStatus();
+      if (i >= tries || (state && /成功|失败/.test(state))) clearInterval(statusTimer);
+    }, 20000);
+  }
+
   $("btn-push").addEventListener("click", pushCode);
   $("btn-publish").addEventListener("click", publish);
   $("btn-net").addEventListener("click", netCheck);
   $("btn-pull").addEventListener("click", pullRemote);
   $("btn-actions").addEventListener("click", () => api.invoke("release:open-actions"));
+  $("btn-status").addEventListener("click", () => refreshStatus());
   $("btn-choose").addEventListener("click", chooseProject);
   $("btn-refresh").addEventListener("click", refresh);
   refresh();

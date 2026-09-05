@@ -293,4 +293,25 @@ export function registerReleaseIpc() {
 		await shell.openExternal(await actionsUrl());
 		return { ok: true };
 	});
+
+	// 构建状态：读取 release 工作流的徽章（公开仓库免登录）。
+	ipcMain.handle("release:status", async () => {
+		const badge = "https://github.com/well74741/dsh-desktop/actions/workflows/release.yml/badge.svg";
+		try {
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), 8000);
+			const res = await fetch(badge, { signal: controller.signal });
+			clearTimeout(timer);
+			if (!res.ok) return { ok: false, error: `状态服务返回 ${res.status}` };
+			const text = await res.text();
+			let state = "未知";
+			if (/passing/i.test(text)) state = "成功 ✅";
+			else if (/failing/i.test(text)) state = "失败 ❌";
+			else if (/no status/i.test(text)) state = "暂无运行";
+			else if (/in_progress|running/i.test(text)) state = "运行中 ⏳";
+			return { ok: true, state, link: "https://github.com/well74741/dsh-desktop/actions" };
+		} catch (error) {
+			return { ok: false, error: String(error?.message ?? error) };
+		}
+	});
 }
