@@ -9,11 +9,11 @@
 ## 0. 一页 SOP（日常用）
 
 1. 我/你在本地改代码 → 本地验证（`npm start` / 面板；可离线）。
-2. 上传代码：双击 **`studio-tool.bat`** → 按钮 1「Commit & Push code」（或 `push.bat`）。
+2. 上传代码：双击 **`D:\Practice\AItest\Deepseek_projects\studio-tool.bat`** → 按钮 1「Commit & Push code」（或仓库里 `push.bat`）。
 3. 发版：双击 **`studio-tool.bat`** → 按钮 2「One-click Release」（或 `release.bat`）→ 选 patch/minor/major → 自动升级版本、打标签、推送 → **Actions 自动构建发布**（几分钟后 Releases 出新版）。
 4. 用户端自动更新（托盘/菜单「检查更新…」）。
 
-一键工具文件：`studio-tool.bat/.ps1`、`push.bat`、`release.bat`、`scripts/{push-code,do-release,bump-version,release}.mjs`。
+UI 工具（放父目录，别放仓库里）：`D:\Practice\AItest\Deepseek_projects\studio-tool.bat/.ps1`；仓库内保留 `push.bat`、`release.bat`、`scripts/{push-code,do-release,bump-version,release}.mjs` 供直接/npm 使用。
 
 ---
 
