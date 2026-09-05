@@ -50,12 +50,14 @@ jobs:
           cache: npm
 
       - name: Configure git identity
+        shell: bash
         run: |
           git config user.name "dsh-release-bot"
           git config user.email "well74741@users.noreply.github.com"
 
       # Web-UI path: bump, commit, tag and push (build runs below in this job).
       - name: Bump, tag and push (manual dispatch)
+        shell: bash
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
