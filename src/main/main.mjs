@@ -303,6 +303,12 @@ function openPluginPanel() {
 	win.webContents.on("did-fail-load", (_event, code, description) => {
 		log(`plugin panel failed to load: ${String(code)} ${String(description)}`);
 	});
+	win.webContents.on("console-message", (_event, level, message) => {
+		if (String(message ?? "") !== "") log(`[plugin-panel console] ${String(message)}`);
+	});
+	win.webContents.on("preload-error", (_event, path, error) => {
+		log(`plugin panel preload error: ${String(path)} ${String(error?.message ?? error)}`);
+	});
 	win.on("closed", () => {
 		const index = pluginPanels.indexOf(win);
 		if (index !== -1) pluginPanels.splice(index, 1);
@@ -337,6 +343,12 @@ function openReleasePanel() {
 	releasePanels.push(win);
 	win.webContents.on("did-fail-load", (_event, code, description) => {
 		log(`release panel failed to load: ${String(code)} ${String(description)}`);
+	});
+	win.webContents.on("console-message", (_event, level, message) => {
+		if (String(message ?? "") !== "") log(`[release-panel console] ${String(message)}`);
+	});
+	win.webContents.on("preload-error", (_event, path, error) => {
+		log(`release panel preload error: ${String(path)} ${String(error?.message ?? error)}`);
 	});
 	win.on("closed", () => {
 		const index = releasePanels.indexOf(win);
