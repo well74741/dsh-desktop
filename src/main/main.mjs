@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { setupUpdater, checkNow, updaterState } from "./updater.mjs";
 import { initFileLog, logFilePath, readLogTail } from "./logger.mjs";
 import { configurePluginService, registerPluginIpc } from "./plugin-service.mjs";
+import { configureReleaseService, registerReleaseIpc } from "./release-service.mjs";
 import { loadSettings, saveSettings } from "./settings.mjs";
 
 // Paths are relative to this file (src/main/): "../../" is the project root.
@@ -33,6 +34,10 @@ const CORE_ENTRY = fileURLToPath(new URL("../core/run.mjs", import.meta.url));
 const TRAY_ICON = join(ASSETS_DIR, "tray-32.png");
 const PANEL_FILE = fileURLToPath(new URL("../panel/index.html", import.meta.url));
 const PANEL_PRELOAD = fileURLToPath(new URL("../preload/preload-panel.cjs", import.meta.url));
+const RELEASE_FILE = fileURLToPath(new URL("../release/index.html", import.meta.url));
+const RELEASE_PRELOAD = fileURLToPath(new URL("../preload/preload-release.cjs", import.meta.url));
+// The dev repository this app runs from (exists only in source checkouts).
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const APP_NAME = "DSH Studio";
 // Embedded 16x16 fallback (bright glyph) in case the icon file is unavailable.
 const TRAY_FALLBACK_B64 =
@@ -61,6 +66,11 @@ let restartExpected = false;
 let hiddenAtStart = ARGV.has("--hidden");
 let deepLinkHandled = false;
 const pluginPanels = [];
+const releasePanels = [];
+
+function releasePanelWindows() {
+	return [...releasePanels];
+}
 
 function appVersion() {
 	try {
@@ -301,6 +311,41 @@ function openPluginPanel() {
 	void win.loadFile(PANEL_FILE);
 }
 
+/** Open (or focus) the release-center panel (developer tool). */
+function openReleasePanel() {
+	const existing = releasePanels.find((win) => !win.isDestroyed());
+	if (existing) {
+		existing.show();
+		existing.focus();
+		return;
+	}
+	const win = new BrowserWindow({
+		width: 860,
+		height: 640,
+		minWidth: 640,
+		minHeight: 420,
+		title: "DSH Studio 发布中心",
+		icon: nativeImage.createFromPath(TRAY_ICON),
+		backgroundColor: "#111318",
+		webPreferences: {
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			preload: RELEASE_PRELOAD
+		}
+	});
+	releasePanels.push(win);
+	win.webContents.on("did-fail-load", (_event, code, description) => {
+		log(`release panel failed to load: ${String(code)} ${String(description)}`);
+	});
+	win.on("closed", () => {
+		const index = releasePanels.indexOf(win);
+		if (index !== -1) releasePanels.splice(index, 1);
+	});
+	log("opening release center panel");
+	void win.loadFile(RELEASE_FILE);
+}
+
 function createWindow(url) {
 	mainWindow = new BrowserWindow({
 		width: 1360,
@@ -381,6 +426,10 @@ function buildTray() {
 		{
 			label: "插件市场…",
 			click: () => openPluginPanel()
+		},
+		{
+			label: "发布中心…（开发）",
+			click: () => openReleasePanel()
 		},
 		{
 			label: "开机自启",
@@ -574,6 +623,12 @@ void (async () => {
 		execPath: process.execPath
 	});
 	registerPluginIpc({ onRestartCore: restartCore });
+	configureReleaseService({
+		getWindows: releasePanelWindows,
+		gitRepoRoot: REPO_ROOT,
+		execPath: process.execPath
+	});
+	registerReleaseIpc();
 
 	log(`start hidden=${String(hiddenAtStart)} (console-free GUI process)`);
 	spawnCore();
