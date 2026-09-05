@@ -44,6 +44,7 @@
     <option value="minor">minor (0.x.0)</option>
     <option value="major">major (x.0.0)</option>
   </select>
+  <input id="custom-ver" type="text" placeholder="或自定义版本号，如 0.2.0（留空用左侧类型）" style="flex:1 1 220px;max-width:260px" />
   <button id="btn-publish" class="danger">发布并推送</button>
   <button id="btn-actions">打开 Actions</button>
   <button id="btn-refresh">刷新</button>
@@ -95,8 +96,9 @@
   }
 
   async function publish() {
-    const kind = $("bump-kind").value;
-    if (!confirm(`发布 ${kind} 版本？将：升级版本号→提交→打标签→推送，Actions 会自动构建发布。`)) return;
+    const custom = $("custom-ver").value.trim();
+    const kind = custom !== "" ? custom : $("bump-kind").value;
+    if (!confirm(`发布“${kind}”版本？将：升级版本号→提交→打标签→推送，Actions 会自动构建发布。`)) return;
     addEvent(`>> 发布 ${kind} …`);
     const res = await api.invoke("release:publish", kind);
     setStatus(res.ok ? `已推送 ${res.version}，Actions 构建中…` : `失败: ${res.error}`);

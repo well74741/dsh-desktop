@@ -6,7 +6,7 @@
  */
 import { ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 let repoRoot = null;
@@ -108,22 +108,50 @@ async function doCommitPush(message) {
 	return { ok: true };
 }
 
+const PLAIN_VERSION = /^\d+\.\d+\.\d+$/;
+const KINDS = ["patch", "minor", "major"];
+
+/** Write an explicit version into package.json + package-lock.json. */
+function setVersionTo(next) {
+	const pkgPath = join(repoRoot, "package.json");
+	const lockPath = join(repoRoot, "package-lock.json");
+	const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+	pkg.version = next;
+	writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf8");
+	try {
+		const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+		if (lock.version !== undefined) lock.version = next;
+		if (lock.packages?.[""]?.version !== undefined) lock.packages[""].version = next;
+		writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n", "utf8");
+	} catch {
+		/* no lockfile */
+	}
+	return next;
+}
+
 async function doPublish(kindOrVersion) {
 	if (!gitAvailable()) return { ok: false, error: "非开发目录，无法发布" };
 	const dirty = (await collect("git", ["status", "--porcelain"])).out;
 	if (dirty !== "") return { ok: false, error: `工作区有未提交改动（${dirty.split("\n").length} 项），请先「提交并推送代码」` };
 
-	broadcast({ kind: "phase", text: "升级版本号…" });
-	const bumpArgs = [join(repoRoot, "scripts", "bump-version.mjs"), kindOrVersion];
-	// The main process is the Electron executable — run the bump script as plain Node.
-	const bumped = await collect(execNode, bumpArgs, { ...process.env, ELECTRON_RUN_AS_NODE: "1" });
-	const newVersion = bumped.out;
-	if (!/^\d+\.\d+\.\d+$/.test(newVersion)) {
-		return { ok: false, error: `版本升级失败: ${bumped.err || bumped.out}` };
+	broadcast({ kind: "phase", text: "确定新版本号…" });
+	let newVersion;
+	if (PLAIN_VERSION.test(kindOrVersion)) {
+		newVersion = setVersionTo(kindOrVersion);
+	} else if (KINDS.includes(kindOrVersion)) {
+		const bumpArgs = [join(repoRoot, "scripts", "bump-version.mjs"), kindOrVersion];
+		// The main process is the Electron executable — run the bump script as plain Node.
+		const bumped = await collect(execNode, bumpArgs, { ...process.env, ELECTRON_RUN_AS_NODE: "1" });
+		newVersion = bumped.out;
+	} else {
+		return { ok: false, error: `版本类型/号无效: ${kindOrVersion}` };
+	}
+	if (!PLAIN_VERSION.test(newVersion)) {
+		return { ok: false, error: `版本升级失败: ${newVersion}` };
 	}
 	broadcast({ kind: "line", text: `新版本: ${newVersion}` });
 
-	if ((await runGit(["add", "package.json"])) !== 0) return { ok: false, error: "git add 失败" };
+	if ((await runGit(["add", "package.json", "package-lock.json"])) !== 0) return { ok: false, error: "git add 失败" };
 	if ((await runGit(["commit", "-m", `chore: release v${newVersion}`])) !== 0) return { ok: false, error: "commit 失败" };
 	const tags = (await collect("git", ["tag", "--list", `v${newVersion}`])).out;
 	if (tags === "") {
@@ -145,11 +173,13 @@ export function registerReleaseIpc() {
 		return result;
 	});
 
-	ipcMain.handle("release:publish", async (_event, kind) => {
-		if (!["patch", "minor", "major"].includes(kind)) return { ok: false, error: `未知版本类型: ${kind}` };
-		broadcast({ kind: "phase", text: `发布 ${kind}…（会先检查工作区）` });
-		const result = await doPublish(kind);
-		if (result.ok && !result.version) void shell.openExternal("https://github.com/well74741/dsh-desktop/actions");
+	ipcMain.handle("release:publish", async (_event, kindOrVersion) => {
+		if (typeof kindOrVersion !== "string" || kindOrVersion.trim() === "") {
+			return { ok: false, error: "缺少版本类型/号" };
+		}
+		broadcast({ kind: "phase", text: `发布 ${kindOrVersion}…（会先检查工作区）` });
+		const result = await doPublish(kindOrVersion.trim());
+		if (result.ok) void shell.openExternal("https://github.com/well74741/dsh-desktop/actions");
 		return result;
 	});
 
