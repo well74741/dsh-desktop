@@ -1,5 +1,3 @@
-# DSH Studio release: one job that always builds & publishes itself.
-# - workflow_dispatch (web Run workflow, patch/minor/major) or tag push v*
 name: release
 on:
   workflow_dispatch:
@@ -26,10 +24,12 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - name: Configure git identity
+        shell: bash
         run: |
           git config user.name "dsh-release-bot"
           git config user.email "well74741@users.noreply.github.com"
       - name: Bump, tag and push (manual dispatch)
+        shell: bash
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
