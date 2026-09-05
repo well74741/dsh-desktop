@@ -22,14 +22,25 @@ function run(args) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Push with retries (GitHub connection can be flaky / 502). */
-async function pushWithRetry(args, tries = 3) {
+/** Push with retries; auto pull --rebase once when rejected (remote ahead). */
+async function pushWithRetry(args, { tries = 3, rebase = false } = {}) {
+	const isRejected = (error) => /rejected|fetch first|non-fast-forward/i.test(String(error?.message ?? error));
 	for (let attempt = 1; attempt <= tries; attempt++) {
 		try {
 			console.log(`\n$ git push ${args.join(" ")}（第 ${attempt}/${tries} 次）`);
 			execFileSync("git", ["push", ...args], { stdio: "inherit", cwd: ROOT });
 			return;
 		} catch (error) {
+			if (rebase && attempt === 1 && isRejected(error)) {
+				console.log("远端有更新，先 pull --rebase 再推送…");
+				try {
+					execFileSync("git", ["pull", "--rebase", "origin", "main"], { stdio: "inherit", cwd: ROOT });
+					continue;
+				} catch (pullError) {
+					console.error(`pull --rebase 失败，请手动解决冲突：${String(pullError?.message ?? pullError).split("\n")[0]}`);
+					throw pullError;
+				}
+			}
 			if (attempt < tries) {
 				console.log(`推送失败（${String(error?.message ?? error).split("\n")[0]}），5 秒后重试…`);
 				await sleep(5000);
@@ -66,7 +77,7 @@ export async function main() {
 	if (exists === "") run(["tag", `v${newVersion}`]);
 	else console.log(`标签 v${newVersion} 已存在，跳过创建`);
 
-	await pushWithRetry(["origin", "main"]);
+	await pushWithRetry(["origin", "main"], { rebase: true });
 	await pushWithRetry(["origin", `v${newVersion}`]);
 
 	console.log(`\n完成 ✅ 已上传 v${newVersion}，Actions 正在自动构建发布…`);

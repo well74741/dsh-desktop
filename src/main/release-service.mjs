@@ -63,6 +63,30 @@ function runGit(args) {
 	});
 }
 
+/** Push branch with auto pull --rebase once when rejected (remote ahead). */
+async function pushBranch(args) {
+	let code = await runGit(["push", ...args]);
+	if (code !== 0) {
+		broadcast({ kind: "phase", text: "远端有更新，先 pull --rebase 再推送…" });
+		await runGit(["pull", "--rebase", "origin", "main"]);
+		code = await runGit(["push", ...args]);
+	}
+	return code;
+}
+
+/** Push tag with a few retries (no rebase; tags rarely conflict). */
+async function pushTag(args) {
+	for (let attempt = 1; attempt <= 3; attempt++) {
+		const code = await runGit(["push", ...args]);
+		if (code === 0) return 0;
+		broadcast({ kind: "line", text: `标签推送第 ${attempt} 次失败，稍后重试…` });
+		await sleep(4000);
+	}
+	return 1;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function collect(executable, args, env = process.env) {
 	return await new Promise((resolve) => {
 		const child = spawn(executable, args, { cwd: repoRoot, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -103,8 +127,8 @@ async function doCommitPush(message) {
 	if (!message || message.trim() === "") return { ok: false, error: "请填写提交说明" };
 	if ((await runGit(["add", "-A"])) !== 0) return { ok: false, error: "git add 失败" };
 	if ((await runGit(["commit", "-m", message.trim()])) !== 0) return { ok: false, error: "git commit 失败（可能没有改动）" };
-	const code = await runGit(["push"]);
-	if (code !== 0) return { ok: false, error: "git push 失败（可能是网络/登录问题，请重试）" };
+	const code = await pushBranch(["origin", "main"]);
+	if (code !== 0) return { ok: false, error: "git push 失败（网络/登录问题；已含 rebase 与提示，可稍后重试）" };
 	return { ok: true };
 }
 
@@ -157,14 +181,48 @@ async function doPublish(kindOrVersion) {
 	if (tags === "") {
 		if ((await runGit(["tag", `v${newVersion}`])) !== 0) return { ok: false, error: "打标签失败" };
 	}
-	if ((await runGit(["push"])) !== 0) return { ok: false, error: "push main 失败" };
-	if ((await runGit(["push", "origin", `v${newVersion}`])) !== 0) return { ok: false, error: "push 标签失败（构建不会触发，请重试）" };
+	if ((await pushBranch(["origin", "main"])) !== 0) return { ok: false, error: "push main 失败（已尝试自动 rebase，仍失败请稍后重试）" };
+	if ((await pushTag(["origin", `v${newVersion}`])) !== 0) return { ok: false, error: "push 标签失败（构建不会触发，请重试）" };
 	broadcast({ kind: "phase", text: `已推送 v${newVersion}，Actions 将自动构建发布` });
 	return { ok: true, version: newVersion };
 }
 
 export function registerReleaseIpc() {
 	ipcMain.handle("release:info", async () => info());
+
+	ipcMain.handle("release:net", async () => {
+		const probe = async (name, url) => {
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), 8000);
+			try {
+				const res = await fetch(url, { method: "HEAD", redirect: "follow", signal: controller.signal });
+				const code = res.status;
+				const state = code < 500 ? "OK" : "异常";
+				return `${name} → ${state} ${code}`;
+			} catch (error) {
+				return `${name} → 失败：${String(error?.message ?? error)}`;
+			} finally {
+				clearTimeout(timer);
+			}
+		};
+		const lines = [
+			await probe("github.com 主页", "https://github.com"),
+			await probe("GitHub API（更新检查用）", "https://api.github.com"),
+			await probe("Releases 最新版", "https://github.com/well74741/dsh-desktop/releases/latest")
+		];
+		for (const line of lines) broadcast({ kind: "out", text: line });
+		return { ok: true, results: lines };
+	});
+
+	ipcMain.handle("release:pull", async () => {
+		broadcast({ kind: "phase", text: "拉取远端（pull --rebase origin main）…" });
+		const code = await runGit(["pull", "--rebase", "origin", "main"]);
+		if (code === 0) {
+			broadcast({ kind: "phase", text: "拉取完成（若提示可推送，请点“提交并推送”）" });
+			return { ok: true };
+		}
+		return { ok: false, error: "pull --rebase 失败，可能需要手动解决冲突（见日志）" };
+	});
 
 	ipcMain.handle("release:push", async (_event, message) => {
 		broadcast({ kind: "phase", text: "提交并推送代码…" });

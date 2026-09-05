@@ -46,6 +46,8 @@
   </select>
   <input id="custom-ver" type="text" placeholder="或自定义版本号，如 0.2.0（留空用左侧类型）" style="flex:1 1 220px;max-width:260px" />
   <button id="btn-publish" class="danger">发布并推送</button>
+  <button id="btn-net">网络检查</button>
+  <button id="btn-pull">拉取远端</button>
   <button id="btn-actions">打开 Actions</button>
   <button id="btn-refresh">刷新</button>
 </div>
@@ -105,8 +107,24 @@
     if (res.ok) await refresh();
   }
 
+  async function netCheck() {
+    addEvent(">> 网络检查…");
+    const res = await api.invoke("release:net");
+    if (res.ok) { res.results.forEach((l) => addEvent(l)); setStatus("网络检查完成"); }
+    else { addEvent(`!! ${res.error}`); }
+  }
+
+  async function pullRemote() {
+    addEvent(">> 拉取远端（pull --rebase origin main）…");
+    const res = await api.invoke("release:pull");
+    setStatus(res.ok ? "拉取完成" : `拉取失败：${res.error}`);
+    if (res.ok) await refresh();
+  }
+
   $("btn-push").addEventListener("click", pushCode);
   $("btn-publish").addEventListener("click", publish);
+  $("btn-net").addEventListener("click", netCheck);
+  $("btn-pull").addEventListener("click", pullRemote);
   $("btn-actions").addEventListener("click", () => api.invoke("release:open-actions"));
   $("btn-refresh").addEventListener("click", refresh);
   refresh();
