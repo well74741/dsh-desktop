@@ -41,6 +41,9 @@ async function pushWithRetry(args, { tries = 3, rebase = false } = {}) {
 			execFileSync("git", ["push", ...args], { stdio: "inherit", cwd: ROOT });
 			return;
 		} catch (error) {
+			if (/already exists/i.test(String(error?.message ?? error))) {
+				throw new Error("该版本（标签）在云端已存在，说明这版已发布过。如需发新版本，请用更高版本号（如再点一次=自动+1，或在“发布中心”填自定义版本号）。");
+			}
 			if (rebase && attempt < tries) {
 				await syncFirst();
 				continue;
