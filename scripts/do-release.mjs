@@ -5,6 +5,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -59,11 +60,22 @@ async function pushWithRetry(args, { tries = 3, rebase = false } = {}) {
 }
 
 export async function main() {
-	console.log("DSH Studio — 一键发版（自动上传并触发 Actions 发布）");
+	console.log("DSH Studio — 一键发版（上传并触发 Actions 发布）");
 
-	const kind = await ask("版本类型？[patch/minor/major，回车=patch]：", "patch");
-	if (!["patch", "minor", "major"].includes(kind)) {
-		console.error(`未知类型: ${kind}`);
+	// 按实际开发进度定版本：回车=建议值(patch+1)，也可填 0.x.y 或 minor/major。
+	let current = "0.0.0";
+	try {
+		const pkg = JSON.parse(readFileSync(`${ROOT}package.json`, "utf8"));
+		if (pkg.version) current = pkg.version;
+	} catch {
+		/* 非 npm 项目时用标签推算 */
+	}
+	const [a, b, c] = current.split(".").map(Number);
+	const suggest = `${a}.${b}.${c + 1}`;
+	const answer = await ask(`新版本号？当前 v${current}。` + "\n  回车 = 建议 v" + suggest + "\n  也可填 0.x.y（自定义）或 minor / major：", "");
+	const spec = answer === "" ? suggest : answer;
+	if (!["patch", "minor", "major"].includes(spec) && !/^\d+\.\d+\.\d+$/.test(spec)) {
+		console.error(`无法识别：${spec}（请填 0.x.y 或 minor/major）`);
 		process.exit(1);
 	}
 
@@ -74,7 +86,7 @@ export async function main() {
 		run(["commit", "-m", message]);
 	}
 
-	const newVersion = execFileSync("node", [BUMP, kind], { cwd: ROOT, encoding: "utf8" }).trim();
+	const newVersion = execFileSync("node", [BUMP, spec], { cwd: ROOT, encoding: "utf8" }).trim();
 	console.log(`新版本: ${newVersion}`);
 
 	run(["add", "package.json", "package-lock.json"]);

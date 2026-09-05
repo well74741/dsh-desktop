@@ -442,19 +442,10 @@ function buildTray() {
 			label: "插件市场…",
 			click: () => openPluginPanel()
 		},
-		...(HAS_GIT
-			? [
-					{
-						label: "发布中心…（开发）",
-						click: () => openReleasePanel()
-					}
-				]
-			: [
-					{
-						label: "发布新版本（网页 Run workflow）",
-						click: () => void shell.openExternal("https://github.com/well74741/dsh-desktop/actions")
-					}
-				]),
+		{
+			label: "发布中心…",
+			click: () => openReleasePanel()
+		},
 		{
 			label: "开机自启",
 			type: "checkbox",
@@ -621,9 +612,7 @@ function buildAppMenu() {
 			label: "文件",
 			submenu: [
 				{ label: "插件市场…", click: () => openPluginPanel() },
-				...(HAS_GIT
-					? [{ label: "发布中心…（开发）", click: () => openReleasePanel() }]
-					: [{ label: "发布新版本（网页 Run workflow）", click: () => void shell.openExternal("https://github.com/well74741/dsh-desktop/actions") }]),
+				{ label: "发布中心…", click: () => openReleasePanel() },
 				{ type: "separator" },
 				{
 					label: "在默认浏览器中打开（网页模式）",

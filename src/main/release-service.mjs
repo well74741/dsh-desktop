@@ -1,20 +1,25 @@
 /**
- * DSH Studio — release center (main-process side). Dev tool: runs git inside
- * the local repository this app was started from. Only meaningful when the
- * app runs from a git checkout (npm start / dev); installed builds have no
- * .git and the panel shows a hint.
+ * DSH Studio — release center (main-process side). Works on ANY local git
+ * project: choose a folder once (persisted), then commit/push/tag/publish.
+ * Publish = bump(if npm) + tag + push; whether Actions builds depends on the
+ * project's own CI.
  */
-import { ipcMain, shell } from "electron";
+import { app, dialog, ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadSettings, saveSettings } from "./settings.mjs";
 
 let repoRoot = null;
 let panelWindows = () => [];
 
 export function configureReleaseService({ getWindows, gitRepoRoot, execPath }) {
 	if (getWindows) panelWindows = getWindows;
-	if (gitRepoRoot) repoRoot = gitRepoRoot;
+	// Prefer the last project the user chose (persisted); fall back to the
+	// repo this app was started from when that path is a real git checkout.
+	const saved = loadSettings().releaseProject;
+	if (typeof saved === "string" && existsSync(join(saved, ".git"))) repoRoot = saved;
+	else if (gitRepoRoot && existsSync(join(gitRepoRoot, ".git"))) repoRoot = gitRepoRoot;
 	if (execPath) execNode = execPath;
 }
 
@@ -28,6 +33,22 @@ function broadcast(payload) {
 
 function gitAvailable() {
 	return repoRoot !== null && existsSync(join(repoRoot, ".git"));
+}
+
+const FALLBACK_ACTIONS = "https://github.com/well74741/dsh-desktop/actions";
+
+/** Derive the GitHub Actions URL of the current project's origin remote. */
+async function actionsUrl() {
+	if (!gitAvailable()) return FALLBACK_ACTIONS;
+	try {
+		const { out } = await collect("git", ["remote", "get-url", "origin"]);
+		let url = (out || "").trim();
+		if (url === "") return FALLBACK_ACTIONS;
+		url = url.replace(/^git@([^:]+):/u, "https://$1/").replace(/^https:\/\/[^@/]+@/u, "https://").replace(/\.git$/u, "");
+		return /^https?:\/\//u.test(url) ? `${url}/actions` : FALLBACK_ACTIONS;
+	} catch {
+		return FALLBACK_ACTIONS;
+	}
 }
 
 function readPkgVersion() {
@@ -188,6 +209,20 @@ async function doPublish(kindOrVersion) {
 }
 
 export function registerReleaseIpc() {
+	ipcMain.handle("release:choose", async () => {
+		const result = await dialog.showOpenDialog({
+			title: "选择要发布/管理的 git 项目文件夹",
+			properties: ["openDirectory"]
+		});
+		if (result.canceled || !result.filePaths?.[0]) return { ok: false, error: "未选择" };
+		const dir = result.filePaths[0];
+		if (!existsSync(join(dir, ".git"))) return { ok: false, error: "该文件夹不是 git 仓库（里面没有 .git）" };
+		repoRoot = dir;
+		saveSettings({ releaseProject: dir });
+		broadcast({ kind: "line", text: `已切换项目：${dir}` });
+		return { ok: true, info: await info() };
+	});
+
 	ipcMain.handle("release:ping", async () => {
 		const start = Date.now();
 		try {
@@ -250,12 +285,12 @@ export function registerReleaseIpc() {
 		}
 		broadcast({ kind: "phase", text: `发布 ${kindOrVersion}…（会先检查工作区）` });
 		const result = await doPublish(kindOrVersion.trim());
-		if (result.ok) void shell.openExternal("https://github.com/well74741/dsh-desktop/actions");
+		if (result.ok) void shell.openExternal(await actionsUrl());
 		return result;
 	});
 
 	ipcMain.handle("release:open-actions", async () => {
-		await shell.openExternal("https://github.com/well74741/dsh-desktop/actions");
+		await shell.openExternal(await actionsUrl());
 		return { ok: true };
 	});
 }

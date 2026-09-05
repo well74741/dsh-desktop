@@ -49,6 +49,7 @@
   <button id="btn-net">网络检查</button>
   <button id="btn-pull">拉取远端</button>
   <button id="btn-actions">打开 Actions</button>
+  <button id="btn-choose">选择项目…</button>
   <button id="btn-refresh">刷新</button>
 </div>
 <main><div class="card"><div class="kv" id="kv"></div></div></main>
@@ -92,7 +93,7 @@
     const res = await call("release:info");
     if (!res.ok) { $("kv").innerHTML = errHtml(res.error, "refresh"); setStatus(""); return; }
     if (!res.available) {
-      $("kv").innerHTML = `<div class="warn">当前不是开发目录（未找到 .git）。<br/>安装版请用 GitHub 网页发布：仓库 Actions → release → Run workflow。<br/>开发发布请在项目目录运行 <code>npm start</code> 打开本面板。</div>`;
+      $("kv").innerHTML = `<div class="warn">还没有选择 git 项目。点上方“选择项目…”挑选任意一个带 .git 的文件夹，即可对它做 提交/推送/拉取/发版。</div>`;
       $("meta").textContent = res.reason || "";
       $("btn-push").disabled = true;
       $("btn-publish").disabled = true;
@@ -145,11 +146,20 @@
     if (res.ok) await refresh();
   }
 
+  async function chooseProject() {
+    addEvent(">> 选择项目…");
+    const res = await call("release:choose");
+    if (!res.ok) { setStatus(`未选择/失败：${res.error}`); return; }
+    setStatus("已切换项目");
+    await refresh();
+  }
+
   $("btn-push").addEventListener("click", pushCode);
   $("btn-publish").addEventListener("click", publish);
   $("btn-net").addEventListener("click", netCheck);
   $("btn-pull").addEventListener("click", pullRemote);
   $("btn-actions").addEventListener("click", () => api.invoke("release:open-actions"));
+  $("btn-choose").addEventListener("click", chooseProject);
   $("btn-refresh").addEventListener("click", refresh);
   refresh();
 </script>
