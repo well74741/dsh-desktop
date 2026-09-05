@@ -1,12 +1,6 @@
-# DSH Studio — release pipeline.
-#
-# Two triggers (both UI-first):
-#   1) workflow_dispatch (recommended): Actions -> release -> Run workflow ->
-#      pick patch/minor/major -> the web job bumps package.json, commits,
-#      tags vX.Y.Z and pushes it. The tag then triggers the build below.
-#   2) push of a tag v* : builds & publishes the NSIS installer to Releases.
+# DSH Studio release: one job that always builds & publishes itself.
+# - workflow_dispatch (web Run workflow, patch/minor/major) or tag push v*
 name: release
-
 on:
   workflow_dispatch:
     inputs:
@@ -15,75 +9,43 @@ on:
         required: true
         default: patch
         type: choice
-        options:
-          - patch
-          - minor
-          - major
+        options: [patch, minor, major]
   push:
-    tags:
-      - "v*"
-
+    tags: ["v*"]
 permissions:
   contents: write
-
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  # ---- Web UI release: bump + tag only (build happens on the tag event) ----
-  web-tag:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+  release:
+    runs-on: windows-latest
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
-      - name: Bump, commit, tag and push
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - name: Configure git identity
         run: |
           git config user.name "dsh-release-bot"
           git config user.email "well74741@users.noreply.github.com"
+      - name: Bump, tag and push (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           NEW_VERSION=$(node scripts/bump-version.mjs "${{ inputs.bump }}")
           echo "tagging v${NEW_VERSION}"
-          git add package.json
+          git add package.json package-lock.json
           git commit -m "chore: release v${NEW_VERSION}"
           git tag "v${NEW_VERSION}"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin main
           git push origin "v${NEW_VERSION}"
-          echo "v${NEW_VERSION} pushed — the build job will publish it."
-
-  # ---- Tag-push build: build & publish NSIS installer to GitHub Releases ----
-  build:
-    if: github.event_name == 'push'
-    runs-on: windows-latest
-    steps:
-      - name: Checkout (full history for version/tag detection)
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Install dependencies
         run: npm ci
-
-      - name: Build & publish NSIS installer to GitHub Releases
+      - name: Build & publish
         env:
-          # Built-in GitHub token: no PAT/secret setup needed.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No code-signing certificate yet; disable auto certificate discovery.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --win nsis --publish always
-
-      - name: Show artifacts
-        run: Get-ChildItem release -File | Select-Object Name, Length
