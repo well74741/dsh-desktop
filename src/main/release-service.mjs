@@ -188,6 +188,19 @@ async function doPublish(kindOrVersion) {
 }
 
 export function registerReleaseIpc() {
+	ipcMain.handle("release:ping", async () => {
+		const start = Date.now();
+		try {
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), 5000);
+			const res = await fetch("https://api.github.com", { method: "HEAD", signal: controller.signal });
+			clearTimeout(timer);
+			return { ok: res.status < 500, ms: Date.now() - start, detail: String(res.status) };
+		} catch (error) {
+			return { ok: false, ms: Date.now() - start, detail: String(error?.message ?? error) };
+		}
+	});
+
 	ipcMain.handle("release:info", async () => info());
 
 	ipcMain.handle("release:net", async () => {

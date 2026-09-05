@@ -7,24 +7,21 @@
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.5 "Segoe UI", system-ui, sans-serif; background: #111318; color: #d7dbe3;
+  body { margin: 0; font: 13px/1.5 "Segoe UI", system-ui, "Microsoft YaHei", sans-serif; background: #111318; color: #d7dbe3;
          display: flex; flex-direction: column; height: 100vh; }
   header { padding: 12px 16px; border-bottom: 1px solid #232733; background: #161a22; }
   header h1 { margin: 0 0 6px; font-size: 15px; color: #fff; }
   #meta { color: #8b93a5; font-size: 12px; word-break: break-all; }
   .bar { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #232733; align-items: center; flex-wrap: wrap; }
-  .bar input[type="text"] { flex: 1 1 260px; max-width: 480px; background: #0d0f13; color: #e6e9f0;
+  .bar input[type="text"] { flex: 1 1 240px; max-width: 420px; background: #0d0f13; color: #e6e9f0;
         border: 1px solid #2c3140; border-radius: 6px; padding: 6px 10px; }
-  button { background: #1e2430; color: #dfe3ec; border: 1px solid #2f3647; border-radius: 6px;
-           padding: 6px 12px; cursor: pointer; }
+  button { background: #1e2430; color: #dfe3ec; border: 1px solid #2f3647; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   button:hover { background: #272f3f; }
   button.primary { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
   button.danger { color: #ff7a7a; }
-  button.ghost { background: transparent; }
-  button:disabled { opacity: .5; cursor: default; }
+  button:disabled { opacity: .45; cursor: default; }
   main { flex: 1; overflow: auto; padding: 12px 16px; }
   .card { background: #161a22; border: 1px solid #232733; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
-  .card h3 { margin: 0 0 2px; font-size: 13px; }
   .desc { color: #98a0b3; margin: 2px 0 6px; font-size: 12px; }
   .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .meta2 { color: #6f7789; font-size: 12px; }
@@ -33,10 +30,24 @@
   .badge.plain { background: #3a2c12; color: #e0b45c; border: 1px solid #5c4a1e; }
   .tabs { display: flex; gap: 4px; }
   .tabs button.active { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
-  #events { background: #0b0d10; border: 1px solid #232733; border-radius: 6px; margin: 10px 16px; padding: 8px 12px;
-            height: 96px; overflow: auto; font: 11px/1.5 Consolas, monospace; color: #7fd0a8; white-space: pre-wrap; }
-  #status { margin: 0 16px 12px; color: #8b93a5; font-size: 12px; }
+  /* 3×4 卡片网格 */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+  .pcard { background: #161a22; border: 1px solid #232733; border-radius: 10px; padding: 10px 12px;
+           display: flex; flex-direction: column; min-height: 118px; }
+  .pcard:hover { border-color: #3a4256; }
+  .pcard h4 { margin: 0 0 2px; font-size: 13px; color: #fff; cursor: pointer; word-break: break-all; }
+  .pcard .ver { color: #8b93a5; font-size: 11px; }
+  .pcard .desc { flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 4px 0 6px; }
+  .pcard .ops { display: flex; gap: 6px; }
+  .pagination { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .detail { background: #14161d; border: 1px solid #2c3140; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .detail h3 { margin: 0 0 4px; }
+  .drow { display: grid; grid-template-columns: 110px 1fr; gap: 2px 12px; margin: 6px 0; }
+  .drow b { color: #98a0b3; font-weight: 500; }
   .empty { color: #6f7789; padding: 20px 0; text-align: center; }
+  #events { background: #0b0d10; border: 1px solid #232733; border-radius: 6px; margin: 10px 16px; padding: 8px 12px;
+            height: 84px; overflow: auto; font: 11px/1.5 Consolas, monospace; color: #7fd0a8; white-space: pre-wrap; }
+  #status { margin: 0 16px 12px; color: #8b93a5; font-size: 12px; }
   .spacer { flex: 1; }
 </style>
 </head>
@@ -57,11 +68,19 @@
 <main>
   <section id="view-installed"></section>
   <section id="view-market" hidden>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <input id="q" type="text" placeholder="在 npm 上搜索（如：dsh-plugin、@deepseek-ai/dsh…）按回车" />
-      <button id="btn-search" class="primary">搜索</button>
+    <div id="market-detail"></div>
+    <div style="display:flex;gap:8px;margin-bottom:4px;align-items:center">
+      <button id="btn-hot" class="primary">热门</button>
+      <input id="q" type="text" placeholder="搜索 npm 包（回车搜索）" />
+      <button id="btn-search">搜索</button>
+      <div id="market-count" class="meta2"></div>
     </div>
     <div id="market-results"></div>
+    <div class="pagination" id="mkt-page" hidden>
+      <button id="btn-prev">← 上一页</button>
+      <span id="page-info" class="meta2"></span>
+      <button id="btn-next">下一页 →</button>
+    </div>
   </section>
 </main>
 <div id="events">— 操作日志 —</div>
@@ -71,12 +90,12 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function setStatus(text) { $("status").textContent = text; }
+  const market = { query: "", page: 1, total: 0, per: 12 };
 
-  function addEvent(line) {
-    const el = $("events");
-    el.textContent += line + "\n";
-    el.scrollTop = el.scrollHeight;
+  function setStatus(text) { $("status").textContent = text; }
+  function addEvent(line) { const el = $("events"); el.textContent += line + "\n"; el.scrollTop = el.scrollHeight; }
+  function pill(item) {
+    return item.dshBundle ? '<span class="badge bundle">dsh 插件(bundle)</span>' : '<span class="badge plain">普通包</span>';
   }
 
   api.onEvent((p) => {
@@ -84,10 +103,71 @@
     else if (p.kind === "line") addEvent(p.text);
   });
 
-  function pill(item) {
-    return item.dshBundle
-      ? `<span class="badge bundle">dsh 插件（bundle）</span>`
-      : `<span class="badge plain">普通包（不构成插件层）</span>`;
+  function cardHtml(r) {
+    return `<div class="pcard">
+      <h4 title="点击看详情">${esc(r.name)}</h4>
+      <div class="ver">v${esc(r.version)} ${pill(r)}</div>
+      <div class="desc">${esc(r.description || "（无描述）")}</div>
+      <div class="ops">
+        <button data-detail="${esc(r.name)}">详情</button>
+        <button class="primary" data-install="${esc(r.name)}">安装</button>
+      </div>
+    </div>`;
+  }
+
+  async function loadMarket() {
+    const box = $("market-results");
+    box.innerHTML = `<div class="empty">${market.query === "" ? "加载热门插件…" : "搜索中…"}</div>`;
+    const res = await api.invoke("plugins:search", market.query, market.page);
+    if (!res.ok) { box.innerHTML = `<div class="empty">加载失败：${esc(res.error)}</div>`; return; }
+    market.total = res.total ?? 0;
+    box.innerHTML = res.results.length === 0
+      ? `<div class="empty">没有结果${market.query === "" ? "" : `：${esc(market.query)}`}</div>`
+      : `<div class="grid">${res.results.map(cardHtml).join("")}</div>`;
+    $("market-count").textContent = market.query === "" ? "热门（按相关度/热度）" : `“${esc(market.query)}” 共 ${market.total} 个结果`;
+    renderPager();
+    box.querySelectorAll("[data-install]").forEach((btn) => btn.addEventListener("click", () => installPkg(btn.dataset.install)));
+    box.querySelectorAll("[data-detail]").forEach((btn) => btn.addEventListener("click", () => showDetail(btn.dataset.detail)));
+    setStatus("");
+  }
+
+  function renderPager() {
+    const pages = Math.max(1, Math.ceil(market.total / market.per));
+    const el = $("mkt-page");
+    el.hidden = false;
+    $("page-info").textContent = `第 ${market.page} / ${pages} 页`;
+    $("btn-prev").disabled = market.page <= 1;
+    $("btn-next").disabled = market.page >= pages;
+  }
+
+  async function showDetail(name) {
+    const box = $("market-detail");
+    box.innerHTML = `<div class="detail"><h3>读取详情…</h3></div>`;
+    const res = await api.invoke("plugins:describe", name);
+    if (!res.ok) { box.innerHTML = `<div class="detail">读取失败：${esc(res.error)} <button onclick="document.getElementById('market-detail').innerHTML=''">关闭</button></div>`; return; }
+    const m = res.meta;
+    const links = [];
+    if (m.homepage) links.push(`<button data-url="${esc(m.homepage)}">主页</button>`);
+    if (m.repository) links.push(`<button data-url="${esc(m.repository)}">源码仓库</button>`);
+    const peers = Object.entries(m.peerDependencies || {}).map(([k, v]) => `${esc(k)} ${esc(v)}`).join("、") || "（无）";
+    box.innerHTML = `<div class="detail">
+      <div class="row"><h3>${esc(m.name)} <span class="ver">v${esc(m.version)}</span> ${m.dshBundle ? '<span class="badge bundle">dsh 插件</span>' : '<span class="badge plain">普通包</span>'}</h3>
+        <div><button class="danger" data-close>关闭</button></div></div>
+      <div class="desc">${esc(m.description || "（无描述）")}</div>
+      <div class="drow">
+        <b>License</b><span>${esc(m.license ?? "未声明")}</span>
+        <b>peer 依赖</b><span>${peers}</span>
+        ${m.engines ? `<b>Node 要求</b><span>${esc(JSON.stringify(m.engines))}</span>` : ""}
+        ${m.keywords?.length ? `<b>关键词</b><span>${esc(m.keywords.join("、"))}</span>` : ""}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${links.join("")}
+        <button class="primary" data-install2="${esc(m.name)}">安装</button>
+      </div>
+    </div>`;
+    box.querySelector("[data-close]").addEventListener("click", () => { box.innerHTML = ""; });
+    box.querySelectorAll("[data-url]").forEach((b) => b.addEventListener("click", () => { void api.invoke("plugins:open-url", b.dataset.url); }));
+    box.querySelector("[data-install2]").addEventListener("click", () => installPkg(box.querySelector("[data-install2]").dataset.install2));
   }
 
   async function renderInstalled() {
@@ -103,8 +183,7 @@
       ${items.map((p) => `
         <div class="card">
           <div class="row">
-            <div><h3>${esc(p.name)} ${esc(p.bundle ? "" : "")}</h3>
-              <div class="meta2">版本: ${esc(p.version)}</div></div>
+            <div><h3 style="margin:0 0 2px">${esc(p.name)}</h3><div class="meta2">版本: ${esc(p.version)}</div></div>
             <div style="display:flex;gap:6px;align-items:center">
               ${p.bundle ? '<span class="badge bundle">bundle 层</span>' : '<span class="badge plain">依赖</span>'}
               <button data-compat="${esc(p.name)}">检查</button>
@@ -113,12 +192,8 @@
           </div>
         </div>`).join("")}
       ${info.bundles.length ? `<div class="meta2" style="margin-top:8px">bundles 层顺序: ${esc(info.bundles.join(" → "))}</div>` : ""}`;
-    view.querySelectorAll("[data-uninstall]").forEach((btn) => {
-      btn.addEventListener("click", () => uninstall(btn.dataset.uninstall));
-    });
-    view.querySelectorAll("[data-compat]").forEach((btn) => {
-      btn.addEventListener("click", () => checkCompat(btn.dataset.compat));
-    });
+    view.querySelectorAll("[data-uninstall]").forEach((btn) => btn.addEventListener("click", () => uninstall(btn.dataset.uninstall)));
+    view.querySelectorAll("[data-compat]").forEach((btn) => btn.addEventListener("click", () => checkCompat(btn.dataset.compat)));
     setStatus("");
   }
 
@@ -128,28 +203,6 @@
     const res = await api.invoke("plugins:uninstall", name);
     if (!res.ok) addEvent(`!! ${res.error}`);
     await renderInstalled();
-  }
-
-  async function doSearch(text) {
-    const box = $("market-results");
-    box.innerHTML = `<div class="empty">搜索 “${esc(text)}”…</div>`;
-    const res = await api.invoke("plugins:search", text);
-    if (!res.ok) { box.innerHTML = `<div class="empty">搜索失败: ${esc(res.error)}</div>`; return; }
-    if (res.results.length === 0) { box.innerHTML = `<div class="empty">没有结果（当前 dsh 生态尚小；可安装声明了 dsh.bundle 的包）</div>`; return; }
-    box.innerHTML = res.results.map((r) => `
-      <div class="card">
-        <div class="row">
-          <div>
-            <h3>${esc(r.name)} <span class="meta2">${esc(r.version)}</span> ${pill(r)}</h3>
-            <div class="desc">${esc(r.description || "（无描述）")}</div>
-            ${r.license ? `<div class="meta2">license: ${esc(r.license)}</div>` : ""}
-          </div>
-          <button class="primary" data-install="${esc(r.name)}">安装</button>
-        </div>
-      </div>`).join("");
-    box.querySelectorAll("[data-install]").forEach((btn) => {
-      btn.addEventListener("click", () => installPkg(btn.dataset.install));
-    });
   }
 
   async function checkCompat(name) {
@@ -165,14 +218,12 @@
   }
 
   async function installPkg(name) {
-    // Already-installed guard (same profile — duplicates would confuse the tree).
     const lst = await api.invoke("plugins:list");
     const existing = lst.ok ? lst.info.inventory.find((p) => p.name === name) : undefined;
     if (existing && !confirm(`“${name}”已安装为 ${existing.bundle ? "bundle 层" : "依赖"}（版本 ${existing.version}）。\n仍要重装/覆盖吗？`)) {
       addEvent("已取消（已安装同名包）");
       return;
     }
-    // Compatibility check first (advisory — install itself still goes to pnpm).
     const compatRes = await api.invoke("plugins:compat", name);
     if (compatRes.ok && compatRes.compat) {
       const compat = compatRes.compat;
@@ -199,10 +250,14 @@
     $("view-market").hidden = which !== "market";
     $("tab-installed").classList.toggle("active", which === "installed");
     $("tab-market").classList.toggle("active", which === "market");
+    if (which === "market" && market.page === 1 && $("market-results").childElementCount === 0) loadMarket();
   }
 
-  $("btn-search").addEventListener("click", () => doSearch($("q").value.trim()));
-  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch($("q").value.trim()); });
+  $("btn-hot").addEventListener("click", () => { market.query = ""; market.page = 1; loadMarket(); });
+  $("btn-search").addEventListener("click", () => { market.query = $("q").value.trim(); market.page = 1; loadMarket(); });
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-search").click(); });
+  $("btn-prev").addEventListener("click", () => { if (market.page > 1) { market.page -= 1; loadMarket(); } });
+  $("btn-next").addEventListener("click", () => { market.page += 1; loadMarket(); });
   $("btn-refresh").addEventListener("click", () => renderInstalled());
   $("tab-installed").addEventListener("click", () => switchTab("installed"));
   $("tab-market").addEventListener("click", () => switchTab("market"));

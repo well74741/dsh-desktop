@@ -7,6 +7,8 @@ const ALLOWED_INVOKE = [
 	"plugins:info",
 	"plugins:list",
 	"plugins:search",
+	"plugins:describe",
+	"plugins:open-url",
 	"plugins:compat",
 	"plugins:install",
 	"plugins:uninstall",

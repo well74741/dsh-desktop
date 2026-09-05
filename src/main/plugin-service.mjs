@@ -7,7 +7,7 @@
  *   - registry helpers (npm search + dsh.bundle annotation),
  *   - a restart-core request handled by the shell (main.mjs).
  */
-import { app, ipcMain } from "electron";
+import { app, ipcMain, shell } from "electron";
 import {
 	effectiveDshHome,
 	listPlugins,
@@ -103,16 +103,34 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 		return runWithEvents(async () => ({ info: listPlugins(home()) }), "读取插件清单…");
 	});
 
-	ipcMain.handle("plugins:search", async (_event, text) => {
-		if (typeof text !== "string" || text.trim() === "") return { ok: true, results: [] };
+	// text "" = 热门（推荐）feed；page 从 1 开始，每页 12（3×4）。
+	ipcMain.handle("plugins:search", async (_event, text, page = 1) => {
+		const query = typeof text === "string" ? text.trim() : "";
+		const from = Math.max(0, ((Number(page) || 1) - 1) * 12);
 		try {
-			broadcast({ kind: "phase", text: `搜索 npm: ${text}` });
-			const results = await searchNpm(text.trim(), 20);
-			const annotated = await annotateWithBundle(results.slice(0, 12));
-			return { ok: true, results: annotated };
+			broadcast({ kind: "phase", text: query === "" ? "加载热门插件…" : `搜索 npm: ${query}` });
+			const { results, total } = await searchNpm(query, 12, from);
+			const annotated = await annotateWithBundle(results);
+			return { ok: true, results: annotated, total, page: from / 12 + 1 };
 		} catch (error) {
 			return { ok: false, error: error instanceof Error ? error.message : String(error) };
 		}
+	});
+
+	ipcMain.handle("plugins:describe", async (_event, name) => {
+		if (typeof name !== "string" || name.trim() === "") return { ok: false, error: "缺少包名" };
+		try {
+			const meta = await describePackage(name.trim());
+			return { ok: true, meta };
+		} catch (error) {
+			return { ok: false, error: error instanceof Error ? error.message : String(error) };
+		}
+	});
+
+	ipcMain.handle("plugins:open-url", async (_event, url) => {
+		if (typeof url !== "string" || !/^https?:\/\//u.test(url)) return { ok: false, error: "非法地址" };
+		await shell.openExternal(url);
+		return { ok: true };
 	});
 
 	ipcMain.handle("plugins:compat", async (_event, spec) => {

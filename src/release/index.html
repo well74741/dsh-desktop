@@ -85,6 +85,10 @@
       <b>分支/远端</b><span>${esc(res.branch)} → ${esc(res.remote)}</span>
       <b>工作区</b><span class="${res.dirty > 0 ? "warn" : ""}">${esc(res.statusText)}</span>`;
     $("meta").textContent = `发布方式：点「发布并推送」= 升级版本→提交→打标签→推送（Actions 自动构建发布）。推送会弹出 GitHub 登录。`;
+    api.invoke("release:ping").then((r) => {
+      const extra = r && r.ok ? `GitHub API：正常（${r.ms} ms）` : `GitHub API：不通（${r && r.ms ? r.ms + " ms" : ""}，点“网络检查”看详情）`;
+      $("meta").textContent += ` ｜ ${extra}`;
+    }).catch(() => {});
     $("btn-push").disabled = false;
     $("btn-publish").disabled = res.dirty > 0;
   }
