@@ -585,6 +585,94 @@ function registerProtocol() {
 	}
 }
 
+/** Application menu bar — mirrors the tray actions inside the main window. */
+function buildAppMenu() {
+	const releasesUrl = "https://github.com/well74741/dsh-desktop/releases/latest";
+	const logDir = (() => {
+		const file = logFilePath();
+		return file === null ? null : dirname(file);
+	})();
+	const template = [
+		{
+			label: "文件",
+			submenu: [
+				{ label: "插件市场…", click: () => openPluginPanel() },
+				{ label: "发布中心…（开发）", click: () => openReleasePanel() },
+				{ type: "separator" },
+				{
+					label: "在默认浏览器中打开（网页模式）",
+					enabled: () => readyUrl !== null,
+					click: () => {
+						if (readyUrl !== null) void shell.openExternal(readyUrl);
+					}
+				},
+				{ type: "separator" },
+				{ label: "检查更新…", click: () => void checkNow() },
+				{ label: "打开下载页（手动更新）", click: () => void shell.openExternal(releasesUrl) },
+				{ type: "separator" },
+				{
+					label: "开机自启",
+					type: "checkbox",
+					checked: isLoginItemEnabled(),
+					click: (item) => applyLoginItem(item.checked, loadSettings().autoStartHidden)
+				},
+				{
+					label: "自启时隐藏到托盘（下次登录生效）",
+					type: "checkbox",
+					checked: loadSettings().autoStartHidden,
+					click: (item) => {
+						saveSettings({ autoStartHidden: item.checked });
+						if (isLoginItemEnabled()) applyLoginItem(true, item.checked);
+					}
+				},
+				{ type: "separator" },
+				{ label: "退出 " + APP_NAME, click: () => void quitApp() }
+			]
+		},
+		{
+			label: "视图",
+			submenu: [
+				{ role: "reload", label: "重新加载" },
+				{ role: "forceReload", label: "强制重新加载" },
+				{ role: "toggleDevTools", label: "开发者工具" },
+				{ type: "separator" },
+				{ role: "resetZoom", label: "实际大小" },
+				{ role: "zoomIn", label: "放大" },
+				{ role: "zoomOut", label: "缩小" },
+				{ type: "separator" },
+				{ role: "togglefullscreen", label: "全屏" }
+			]
+		},
+		{
+			label: "帮助",
+			submenu: [
+				...(logDir !== null
+					? [
+							{
+								label: "打开日志目录",
+								click: () => void shell.openPath(logDir).catch(() => log("open log dir failed"))
+							}
+						]
+					: []),
+				{ label: "GitHub 仓库", click: () => void shell.openExternal("https://github.com/well74741/dsh-desktop") },
+				{ type: "separator" },
+				{
+					label: `关于 ${APP_NAME} v${appVersion()}`,
+					click: () => {
+						void dialog.showMessageBox({
+							type: "info",
+							title: `关于 ${APP_NAME}`,
+							message: `${titleWithVersion()}\nDeepSeek Harness 桌面版（内核与 dsh web 同源）`,
+							buttons: ["确定"]
+						});
+					}
+				}
+			]
+		}
+	];
+	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 async function ensureSingleInstance() {
 	// Dev/CI escape hatch: allows e.g. selfcheck while a real app instance is
 	// open. Never set for end users.
@@ -634,6 +722,7 @@ void (async () => {
 	});
 	registerReleaseIpc();
 
+	buildAppMenu();
 	log(`start hidden=${String(hiddenAtStart)} (console-free GUI process)`);
 	spawnCore();
 
