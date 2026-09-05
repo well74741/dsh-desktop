@@ -32,6 +32,10 @@ let checkTimer = null;
 let lastLoggedPercent = -1;
 // True while a check was started from the tray (needs a visible result).
 let manualRequested = false;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 3000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function showResult(title, body) {
 	if (Notification.isSupported()) {
@@ -95,11 +99,9 @@ function armEvents() {
 		if (choice === 1) quitToInstall();
 	});
 	autoUpdater.on("error", (error) => {
-		const manual = manualRequested;
-		manualRequested = false;
-		const message = shortMessage(error);
-		log(`update error: ${message}`);
-		if (manual) showResult("检查更新失败", `${message}\n\n详情见日志。`);
+		// Popups/retries are driven by checkNow(); here we only log so a
+		// transient 502 does not interrupt the manual retry loop.
+		log(`update error: ${shortMessage(error)}`);
 	});
 }
 
@@ -117,16 +119,27 @@ export function setupUpdater({ delayMs = 10000 } = {}) {
 	log(`armed (first check in ${Math.round(delayMs / 1000)} s)`);
 }
 
-/** Manual check (tray menu) — must produce a visible result. */
-export function checkNow() {
+/** Manual check (tray menu) — visible result, retries transient network errors. */
+export async function checkNow() {
 	if (!updaterState.enabled) return;
 	manualRequested = true;
 	lastLoggedPercent = -1;
-	void autoUpdater.checkForUpdates().catch((error) => {
-		manualRequested = false;
-		log(`check failed: ${shortMessage(error)}`);
-		showResult("检查更新失败", shortMessage(error));
-	});
+	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+		try {
+			await autoUpdater.checkForUpdates();
+			manualRequested = false;
+			return;
+		} catch (error) {
+			if (attempt < MAX_RETRIES) {
+				log(`check attempt ${attempt + 1} failed (${shortMessage(error)}); retrying in ${RETRY_DELAY_MS / 1000}s…`);
+				await sleep(RETRY_DELAY_MS);
+				continue;
+			}
+			manualRequested = false;
+			const message = shortMessage(error);
+			showResult("检查更新失败", `${message}\n\n可稍后重试，或点托盘“打开下载页（浏览器）”手动下载。`);
+		}
+	}
 }
 
 /** User confirmed: let the updater quit the app and install. */

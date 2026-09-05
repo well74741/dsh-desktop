@@ -451,7 +451,11 @@ function buildTray() {
 					{ type: "separator" },
 					{
 						label: "检查更新…",
-						click: () => checkNow()
+						click: () => void checkNow()
+					},
+					{
+						label: "打开下载页（手动更新）",
+						click: () => void shell.openExternal("https://github.com/well74741/dsh-desktop/releases/latest")
 					}
 				]
 			: []),
