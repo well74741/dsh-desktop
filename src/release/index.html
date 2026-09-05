@@ -92,6 +92,7 @@
   async function pushCode() {
     const msg = $("commit-msg").value.trim();
     if (!msg) { setStatus("请填写提交说明"); return; }
+    if (!confirm(`将把最新代码改动提交并上传到 GitHub（不产生新版本、不生成 exe）。\n说明：${msg}\n继续吗？`)) return;
     const res = await api.invoke("release:push", msg);
     setStatus(res.ok ? "推送完成 ✅" : `失败: ${res.error}`);
     if (res.ok) await refresh();
