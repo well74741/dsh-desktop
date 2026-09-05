@@ -1,0 +1,57 @@
+# electron-builder configuration for DSH Studio (Windows x64 / NSIS).
+# Publish feed: GitHub Releases at https://github.com/well74741/dsh-desktop
+# (uploaded automatically by .github/workflows/release.yml on tag push, or
+# manually via `npm run dist:publish` with GH_TOKEN set).
+appId: com.dshstudio.desktop
+productName: DSH Studio
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+# asar is disabled on purpose: the harness core is spawned as a plain-Node
+# child (ELECTRON_RUN_AS_NODE) of this same executable, and plain Node cannot
+# read files inside app.asar. Keep app files on disk so the kernel entry and
+# its @deepseek-ai/* module tree stay resolvable byte-for-byte like in dev.
+asar: false
+
+# Native modules in the dependency tree are N-API/prebuilt (koffi via its
+# platform package, etc.) and the web profile does not need node-gyp rebuilds
+# (node-pty is only used by interactive tui features). Skip rebuild to avoid
+# requiring a Visual Studio toolchain on the build machine.
+npmRebuild: false
+
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+  - "!**/*.log"
+  - "!.smoke-dsh-home/**"
+  - "!.npm-cache/**"
+  - "!.electron-cache/**"
+  - "!scripts/**"
+  - "!DESKTOP-PLAN.md"
+  - "!README.md"
+
+win:
+  icon: assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DSH Studio
+  artifactName: DSH-Studio-${version}-setup.${ext}
+
+# electron-updater feed: GitHub Releases on YOUR repo.
+publish:
+  provider: github
+  owner: well74741
+  repo: dsh-desktop

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+release/
+*.log
+run-*.out.log
+run-*.err.log
+.npm-cache/
+.electron-cache/
+.smoke-dsh-home/
+.DS_Store

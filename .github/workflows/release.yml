@@ -1,0 +1,41 @@
+# DSH Studio — automatic Windows release on tag push.
+# Usage: bump package.json version, then `git tag v<version>` and push.
+# Add a repo secret named GH_TOKEN (classic PAT with `repo` scope).
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout (full history for version/tag detection)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & publish NSIS installer to GitHub Releases
+        env:
+          # Built-in GitHub token: no PAT/secret setup needed for auto-releases.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No code-signing certificate yet; disable auto certificate discovery.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win nsis --publish always
+
+      - name: Show artifacts
+        run: Get-ChildItem release -File | Select-Object Name, Length

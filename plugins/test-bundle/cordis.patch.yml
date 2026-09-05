@@ -1,0 +1,5 @@
+# DSH Studio test-bundle patch layer. Mirror of the official bundle row shape:
+# one `insert` whose rows reference plugin modules by name.
+- insert:
+    - id: dsh-studio-test-bundle
+      name: '@dsh-studio/test-bundle'

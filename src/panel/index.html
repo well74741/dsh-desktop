@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
+<title>DSH Studio 插件市场</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 "Segoe UI", system-ui, sans-serif; background: #111318; color: #d7dbe3;
+         display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 12px 16px; border-bottom: 1px solid #232733; background: #161a22; }
+  header h1 { margin: 0 0 6px; font-size: 15px; color: #fff; }
+  #meta { color: #8b93a5; font-size: 12px; word-break: break-all; }
+  .bar { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #232733; align-items: center; flex-wrap: wrap; }
+  .bar input[type="text"] { flex: 1 1 260px; max-width: 480px; background: #0d0f13; color: #e6e9f0;
+        border: 1px solid #2c3140; border-radius: 6px; padding: 6px 10px; }
+  button { background: #1e2430; color: #dfe3ec; border: 1px solid #2f3647; border-radius: 6px;
+           padding: 6px 12px; cursor: pointer; }
+  button:hover { background: #272f3f; }
+  button.primary { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
+  button.danger { color: #ff7a7a; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { flex: 1; overflow: auto; padding: 12px 16px; }
+  .card { background: #161a22; border: 1px solid #232733; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .card h3 { margin: 0 0 2px; font-size: 13px; }
+  .desc { color: #98a0b3; margin: 2px 0 6px; font-size: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .meta2 { color: #6f7789; font-size: 12px; }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; margin-left: 6px; }
+  .badge.bundle { background: #143c2c; color: #5fe3a0; border: 1px solid #1e5c42; }
+  .badge.plain { background: #3a2c12; color: #e0b45c; border: 1px solid #5c4a1e; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button.active { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
+  #events { background: #0b0d10; border: 1px solid #232733; border-radius: 6px; margin: 10px 16px; padding: 8px 12px;
+            height: 96px; overflow: auto; font: 11px/1.5 Consolas, monospace; color: #7fd0a8; white-space: pre-wrap; }
+  #status { margin: 0 16px 12px; color: #8b93a5; font-size: 12px; }
+  .empty { color: #6f7789; padding: 20px 0; text-align: center; }
+  .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DSH Studio · 插件市场</h1>
+  <div id="meta">读取中…</div>
+</header>
+<div class="bar">
+  <div class="tabs">
+    <button id="tab-installed" class="active">已安装</button>
+    <button id="tab-market">插件市场</button>
+  </div>
+  <div class="spacer"></div>
+  <button id="btn-restart" title="安装/卸载插件后需重启内核才能生效">重启内核以生效</button>
+  <button id="btn-refresh">刷新</button>
+</div>
+<main>
+  <section id="view-installed"></section>
+  <section id="view-market" hidden>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <input id="q" type="text" placeholder="在 npm 上搜索（如：dsh-plugin、@deepseek-ai/dsh…）按回车" />
+      <button id="btn-search" class="primary">搜索</button>
+    </div>
+    <div id="market-results"></div>
+  </section>
+</main>
+<div id="events">— 操作日志 —</div>
+<div id="status"></div>
+<script>
+  const api = window.dshPlugins;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function setStatus(text) { $("status").textContent = text; }
+
+  function addEvent(line) {
+    const el = $("events");
+    el.textContent += line + "\n";
+    el.scrollTop = el.scrollHeight;
+  }
+
+  api.onEvent((p) => {
+    if (p.kind === "phase") setStatus(p.text);
+    else if (p.kind === "line") addEvent(p.text);
+  });
+
+  function pill(item) {
+    return item.dshBundle
+      ? `<span class="badge bundle">dsh 插件（bundle）</span>`
+      : `<span class="badge plain">普通包（不构成插件层）</span>`;
+  }
+
+  async function renderInstalled() {
+    const view = $("view-installed");
+    setStatus("读取插件清单…");
+    const res = await api.invoke("plugins:list");
+    if (!res.ok) { view.innerHTML = `<div class="empty">读取失败：${esc(res.error)}</div>`; setStatus(""); return; }
+    const info = res.info;
+    const items = info.inventory;
+    view.innerHTML = `
+      <div class="meta2" style="margin-bottom:10px">DSH_HOME: ${esc(info.home)}<br/>Profile: <b>${esc(info.profile)}</b>（与 dsh web 共用，安装后双方下次启动即同步）<br/>目录: ${esc(info.profileDir)}</div>
+      ${items.length === 0 ? '<div class="empty">尚未安装任何额外依赖（bundles 层由官方提供）</div>' : ""}
+      ${items.map((p) => `
+        <div class="card">
+          <div class="row">
+            <div><h3>${esc(p.name)} ${esc(p.bundle ? "" : "")}</h3>
+              <div class="meta2">版本: ${esc(p.version)}</div></div>
+            <div style="display:flex;gap:6px;align-items:center">
+              ${p.bundle ? '<span class="badge bundle">bundle 层</span>' : '<span class="badge plain">依赖</span>'}
+              <button data-compat="${esc(p.name)}">检查</button>
+              <button class="danger" data-uninstall="${esc(p.name)}">卸载</button>
+            </div>
+          </div>
+        </div>`).join("")}
+      ${info.bundles.length ? `<div class="meta2" style="margin-top:8px">bundles 层顺序: ${esc(info.bundles.join(" → "))}</div>` : ""}`;
+    view.querySelectorAll("[data-uninstall]").forEach((btn) => {
+      btn.addEventListener("click", () => uninstall(btn.dataset.uninstall));
+    });
+    view.querySelectorAll("[data-compat]").forEach((btn) => {
+      btn.addEventListener("click", () => checkCompat(btn.dataset.compat));
+    });
+    setStatus("");
+  }
+
+  async function uninstall(name) {
+    if (!confirm(`卸载 ${name}？`)) return;
+    addEvent(`>> 卸载 ${name}`);
+    const res = await api.invoke("plugins:uninstall", name);
+    if (!res.ok) addEvent(`!! ${res.error}`);
+    await renderInstalled();
+  }
+
+  async function doSearch(text) {
+    const box = $("market-results");
+    box.innerHTML = `<div class="empty">搜索 “${esc(text)}”…</div>`;
+    const res = await api.invoke("plugins:search", text);
+    if (!res.ok) { box.innerHTML = `<div class="empty">搜索失败: ${esc(res.error)}</div>`; return; }
+    if (res.results.length === 0) { box.innerHTML = `<div class="empty">没有结果（当前 dsh 生态尚小；可安装声明了 dsh.bundle 的包）</div>`; return; }
+    box.innerHTML = res.results.map((r) => `
+      <div class="card">
+        <div class="row">
+          <div>
+            <h3>${esc(r.name)} <span class="meta2">${esc(r.version)}</span> ${pill(r)}</h3>
+            <div class="desc">${esc(r.description || "（无描述）")}</div>
+            ${r.license ? `<div class="meta2">license: ${esc(r.license)}</div>` : ""}
+          </div>
+          <button class="primary" data-install="${esc(r.name)}">安装</button>
+        </div>
+      </div>`).join("");
+    box.querySelectorAll("[data-install]").forEach((btn) => {
+      btn.addEventListener("click", () => installPkg(btn.dataset.install));
+    });
+  }
+
+  async function checkCompat(name) {
+    addEvent(`>> 兼容检查 ${name} …`);
+    const res = await api.invoke("plugins:compat", name);
+    if (!res.ok || !res.compat) { addEvent("!! 检查不可用（非 registry 包或网络错误）"); return null; }
+    const compat = res.compat;
+    const danger = compat.issues.filter((i) => i.kind === "danger");
+    const warn = compat.issues.filter((i) => i.kind === "warn");
+    addEvent(`检查 ${compat.name}@${compat.version}: ${compat.bundle ? "dsh 插件(bundle)" : "普通包"}，风险 ${danger.length} / 警告 ${warn.length}`);
+    [...danger, ...warn].forEach((i) => addEvent(`   - ${i.package} ${i.range || ""}: ${i.note}`));
+    return compat;
+  }
+
+  async function installPkg(name) {
+    // Already-installed guard (same profile — duplicates would confuse the tree).
+    const lst = await api.invoke("plugins:list");
+    const existing = lst.ok ? lst.info.inventory.find((p) => p.name === name) : undefined;
+    if (existing && !confirm(`“${name}”已安装为 ${existing.bundle ? "bundle 层" : "依赖"}（版本 ${existing.version}）。\n仍要重装/覆盖吗？`)) {
+      addEvent("已取消（已安装同名包）");
+      return;
+    }
+    // Compatibility check first (advisory — install itself still goes to pnpm).
+    const compatRes = await api.invoke("plugins:compat", name);
+    if (compatRes.ok && compatRes.compat) {
+      const compat = compatRes.compat;
+      const danger = compat.issues.filter((i) => i.kind === "danger");
+      const warn = compat.issues.filter((i) => i.kind === "warn");
+      addEvent(`兼容检查 ${compat.name}@${compat.version}: ${compat.bundle ? "dsh 插件(bundle)" : "普通包"}，风险 ${danger.length} / 警告 ${warn.length}`);
+      [...danger, ...warn].forEach((i) => addEvent(`   - ${i.package} ${i.range || ""}: ${i.note}`));
+      if (danger.length > 0 || warn.length > 0) {
+        if (!confirm(`“${name}”存在 ${danger.length} 个高风险、${warn.length} 个警告。\n（检查仅为提示，联网安装能力不受影响）\n仍要安装吗？`)) {
+          addEvent("已取消安装");
+          return;
+        }
+      }
+    }
+    addEvent(`>> 安装 ${name}`);
+    const res = await api.invoke("plugins:install", name);
+    if (!res.ok) { addEvent(`!! ${res.error}`); return; }
+    addEvent(`安装完成。请点击“重启内核以生效”。`);
+    await renderInstalled();
+  }
+
+  function switchTab(which) {
+    $("view-installed").hidden = which !== "installed";
+    $("view-market").hidden = which !== "market";
+    $("tab-installed").classList.toggle("active", which === "installed");
+    $("tab-market").classList.toggle("active", which === "market");
+  }
+
+  $("btn-search").addEventListener("click", () => doSearch($("q").value.trim()));
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch($("q").value.trim()); });
+  $("btn-refresh").addEventListener("click", () => renderInstalled());
+  $("tab-installed").addEventListener("click", () => switchTab("installed"));
+  $("tab-market").addEventListener("click", () => switchTab("market"));
+  $("btn-restart").addEventListener("click", async () => {
+    if (!confirm("重启内核以应用插件变更？主窗口会自动重新加载。")) return;
+    setStatus("重启内核中…");
+    await api.invoke("plugins:restart-core");
+  });
+
+  (async () => {
+    const info = await api.invoke("plugins:info");
+    if (info.ok) {
+      const core = info.core ? ` ｜ 内核 dsh ${info.core.dsh ?? "?"} · cordis ${info.core.cordis ?? "?"}（随附 @deepseek-ai 包 ${info.core.scopePackages ?? "?"} 个）` : "";
+      $("meta").textContent = `DSH_HOME: ${info.home} ｜ profile: ${info.profile} ｜ 桌面版 ${info.appVersion} ｜ Node ${info.node}${core}`;
+    }
+    await renderInstalled();
+  })();
+</script>
+</body>
+</html>
