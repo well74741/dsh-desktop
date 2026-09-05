@@ -7,7 +7,7 @@
  *   - registry helpers (npm search + dsh.bundle annotation),
  *   - a restart-core request handled by the shell (main.mjs).
  */
-import { ipcMain } from "electron";
+import { app, ipcMain } from "electron";
 import {
 	effectiveDshHome,
 	listPlugins,
@@ -88,7 +88,7 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 			home: info.home,
 			profile: info.profile,
 			profileDir: info.profileDir,
-			appVersion: process.env.npm_package_version ?? "0.0.0",
+			appVersion: (() => { try { return app.getVersion(); } catch { return "0.0.0"; } })(),
 			node: process.versions.node,
 			core: {
 				dsh: bundled["@deepseek-ai/dsh"] ?? null,

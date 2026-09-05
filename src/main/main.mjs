@@ -62,6 +62,18 @@ let hiddenAtStart = ARGV.has("--hidden");
 let deepLinkHandled = false;
 const pluginPanels = [];
 
+function appVersion() {
+	try {
+		return app.getVersion() || "";
+	} catch {
+		return "";
+	}
+}
+
+function titleWithVersion() {
+	return `${APP_NAME} v${appVersion()}`;
+}
+
 function notify(title, body) {
 	if (!Notification.isSupported()) {
 		log(`notification skipped (unsupported): ${title} — ${body}`);
@@ -295,7 +307,7 @@ function createWindow(url) {
 		height: 880,
 		minWidth: 900,
 		minHeight: 600,
-		title: APP_NAME,
+		title: titleWithVersion(),
 		icon: nativeImage.createFromPath(TRAY_ICON),
 		show: false,
 		backgroundColor: "#101014",
@@ -305,6 +317,11 @@ function createWindow(url) {
 			sandbox: true,
 			preload: fileURLToPath(new URL("../preload/preload.cjs", import.meta.url))
 		}
+	});
+	// Keep the versioned window title even when the web UI sets its own <title>.
+	mainWindow.on("page-title-updated", (event) => {
+		event.preventDefault();
+		mainWindow?.setTitle(titleWithVersion());
 	});
 
 	mainWindow.loadURL(url);
@@ -342,7 +359,7 @@ function buildTray() {
 
 	const menu = Menu.buildFromTemplate([
 		{
-			label: `${APP_NAME}（${runtimeLabel()} 运行）`,
+			label: `${titleWithVersion()}（${runtimeLabel()} 运行）`,
 			enabled: false
 		},
 		{ type: "separator" },
@@ -392,7 +409,7 @@ function buildTray() {
 		{ type: "separator" },
 		{ label: "退出 " + APP_NAME, click: () => void quitApp() }
 	]);
-	tray.setToolTip(`${APP_NAME} — DeepSeek Harness`);
+	tray.setToolTip(`${titleWithVersion()} — DeepSeek Harness`);
 	tray.setContextMenu(menu);
 	tray.on("double-click", focusMain);
 }
