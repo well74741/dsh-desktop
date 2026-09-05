@@ -55,3 +55,5 @@ publish:
   provider: github
   owner: well74741
   repo: dsh-desktop
+  # Publish immediately as a normal (public) release, not a draft.
+  releaseType: release
