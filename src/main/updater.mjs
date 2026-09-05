@@ -15,6 +15,7 @@
  */
 import { app, dialog, Notification } from "electron";
 import { createRequire } from "node:module";
+import { loadSettings } from "./settings.mjs";
 
 // electron-updater is CJS and publishes autoUpdater via Object.defineProperty,
 // which Electron's ESM<->CJS interop cannot see as a named export. Load it
@@ -111,6 +112,67 @@ function armEvents() {
 	});
 }
 
+const OWNER = "well74741";
+const REPO = "dsh-desktop";
+const GITHUB_DL = `https://github.com/${OWNER}/${REPO}/releases/latest/download`;
+// 国内 GitHub 加速前缀（第三方；随时可加/换）。electron-updater 会把 latest.yml
+// 与安装包都按同一前缀拉取。
+const DEFAULT_MIRRORS = [
+	"https://ghfast.top/",
+	"https://gh-proxy.com/",
+	"https://ghproxy.net/",
+	"https://ghps.cc/"
+];
+
+function setFeed(kind, prefix) {
+	if (kind === "github") {
+		autoUpdater.setFeedURL({ provider: "github", owner: OWNER, repo: REPO });
+	} else {
+		autoUpdater.setFeedURL({ provider: "generic", url: prefix + GITHUB_DL });
+	}
+}
+
+function effectiveMirrors() {
+	const custom = (loadSettings().updateMirrors ?? []).filter((x) => typeof x === "string" && x.length > 0);
+	return [...new Set([...DEFAULT_MIRRORS, ...custom])];
+}
+
+/** Try GitHub first, then each mirror, until one answers. */
+async function runCheck(manual) {
+	if (manual) {
+		manualRequested = true;
+		lastLoggedPercent = -1;
+		toast("DSH Studio 更新", "正在检查更新…（GitHub 不通会自动换镜像）");
+	}
+	for (let i = 0; i < 2; i++) {
+		try {
+			setFeed("github");
+			await autoUpdater.checkForUpdates();
+			manualRequested = false;
+			return;
+		} catch (error) {
+			log(`github 检查第 ${i + 1} 次失败: ${shortMessage(error)}`);
+			if (i === 0) await sleep(2000);
+		}
+	}
+	for (const prefix of effectiveMirrors()) {
+		try {
+			setFeed("mirror", prefix);
+			await autoUpdater.checkForUpdates();
+			log(`更新源可用：${prefix}`);
+			manualRequested = false;
+			if (manual) toast("已切换更新源", `GitHub 不可达，本次通过镜像完成检查：${prefix}`);
+			return;
+		} catch (error) {
+			log(`镜像 ${prefix} 失败: ${shortMessage(error)}`);
+		}
+	}
+	manualRequested = false;
+	if (manual) {
+		showResult("检查更新失败", "GitHub 与所有镜像更新源均不可达。可稍后重试，或用“打开下载页（手动更新）”下载。");
+	}
+}
+
 /** Enable the updater and schedule the first check. Dev runs are a no-op. */
 export function setupUpdater({ delayMs = 10000 } = {}) {
 	if (!app.isPackaged) {
@@ -120,33 +182,15 @@ export function setupUpdater({ delayMs = 10000 } = {}) {
 	updaterState.enabled = true;
 	armEvents();
 	checkTimer = setTimeout(() => {
-		void autoUpdater.checkForUpdates().catch((error) => log(`check failed: ${shortMessage(error)}`));
+		void runCheck(false);
 	}, delayMs);
 	log(`armed (first check in ${Math.round(delayMs / 1000)} s)`);
 }
 
-/** Manual check (tray/menu) — instant status toast, retries transient errors. */
+/** Manual check (tray/menu) — instant status toast, auto mirror fallback. */
 export async function checkNow() {
 	if (!updaterState.enabled) return;
-	manualRequested = true;
-	lastLoggedPercent = -1;
-	toast("DSH Studio 更新", "正在检查更新…（网络不稳会自动重试）");
-	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-		try {
-			await autoUpdater.checkForUpdates();
-			manualRequested = false;
-			return;
-		} catch (error) {
-			if (attempt < MAX_RETRIES) {
-				log(`check attempt ${attempt + 1} failed (${shortMessage(error)}); retrying in ${RETRY_DELAY_MS / 1000}s…`);
-				await sleep(RETRY_DELAY_MS);
-				continue;
-			}
-			manualRequested = false;
-			const message = shortMessage(error);
-			showResult("检查更新失败", `${message}\n\n可稍后重试，或点“打开下载页（手动更新）”下载。`);
-		}
-	}
+	await runCheck(true);
 }
 
 /** User confirmed: let the updater quit the app and install. */
