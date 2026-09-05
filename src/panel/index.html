@@ -74,6 +74,7 @@
       <input id="q" type="text" placeholder="搜索 npm 包（回车搜索）" />
       <button id="btn-search">搜索</button>
       <div id="market-count" class="meta2"></div>
+      <label style="color:#8b93a5;font-size:12px"><input type="checkbox" id="only-bundle" /> 只看 dsh 插件</label>
     </div>
     <div id="market-results"></div>
     <div class="pagination" id="mkt-page" hidden>
@@ -91,6 +92,7 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   const market = { query: "", page: 1, total: 0, per: 12 };
+  let lastResults = [];
 
   function setStatus(text) { $("status").textContent = text; }
   function addEvent(line) { const el = $("events"); el.textContent += line + "\n"; el.scrollTop = el.scrollHeight; }
@@ -115,20 +117,28 @@
     </div>`;
   }
 
+  function renderMarket() {
+    const box = $("market-results");
+    const only = $("only-bundle").checked;
+    const shown = only ? lastResults.filter((r) => r.dshBundle) : lastResults;
+    box.innerHTML = shown.length === 0
+      ? `<div class="empty">${only ? "当前页没有带 dsh(bundle) 的插件，试试翻页或换关键词" : market.query === "" ? "热门（按相关度/热度）暂无结果" : `没有结果：${esc(market.query)}`}</div>`
+      : `<div class="grid">${shown.map(cardHtml).join("")}</div>`;
+    box.querySelectorAll("[data-install]").forEach((btn) => btn.addEventListener("click", () => installPkg(btn.dataset.install)));
+    box.querySelectorAll("[data-detail]").forEach((btn) => btn.addEventListener("click", () => showDetail(btn.dataset.detail)));
+    setStatus("");
+  }
+
   async function loadMarket() {
     const box = $("market-results");
     box.innerHTML = `<div class="empty">${market.query === "" ? "加载热门插件…" : "搜索中…"}</div>`;
     const res = await api.invoke("plugins:search", market.query, market.page);
     if (!res.ok) { box.innerHTML = `<div class="empty">加载失败：${esc(res.error)}</div>`; return; }
     market.total = res.total ?? 0;
-    box.innerHTML = res.results.length === 0
-      ? `<div class="empty">没有结果${market.query === "" ? "" : `：${esc(market.query)}`}</div>`
-      : `<div class="grid">${res.results.map(cardHtml).join("")}</div>`;
+    lastResults = res.results;
     $("market-count").textContent = market.query === "" ? "热门（按相关度/热度）" : `“${esc(market.query)}” 共 ${market.total} 个结果`;
+    renderMarket();
     renderPager();
-    box.querySelectorAll("[data-install]").forEach((btn) => btn.addEventListener("click", () => installPkg(btn.dataset.install)));
-    box.querySelectorAll("[data-detail]").forEach((btn) => btn.addEventListener("click", () => showDetail(btn.dataset.detail)));
-    setStatus("");
   }
 
   function renderPager() {
@@ -255,6 +265,7 @@
 
   $("btn-hot").addEventListener("click", () => { market.query = ""; market.page = 1; loadMarket(); });
   $("btn-search").addEventListener("click", () => { market.query = $("q").value.trim(); market.page = 1; loadMarket(); });
+  $("only-bundle").addEventListener("change", () => { if (lastResults.length > 0) renderMarket(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-search").click(); });
   $("btn-prev").addEventListener("click", () => { if (market.page > 1) { market.page -= 1; loadMarket(); } });
   $("btn-next").addEventListener("click", () => { market.page += 1; loadMarket(); });
