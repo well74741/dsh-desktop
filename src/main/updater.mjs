@@ -13,7 +13,7 @@
  *     guards let the updater-driven quit proceed (no graceful core stop —
  *     the process is being replaced).
  */
-import { app, dialog } from "electron";
+import { app, dialog, Notification } from "electron";
 import { createRequire } from "node:module";
 
 // electron-updater is CJS and publishes autoUpdater via Object.defineProperty,
@@ -30,6 +30,16 @@ export const updaterState = {
 
 let checkTimer = null;
 let lastLoggedPercent = -1;
+// True while a check was started from the tray (needs a visible result).
+let manualRequested = false;
+
+function showResult(title, body) {
+	if (Notification.isSupported()) {
+		new Notification({ title, body }).show();
+	} else {
+		dialog.showMessageBoxSync({ type: "info", title, message: body, buttons: ["确定"], noLink: true });
+	}
+}
 
 function log(message) {
 	console.log(`[dsh-studio:updater] ${message}`);
@@ -57,7 +67,10 @@ function armEvents() {
 		void autoUpdater.downloadUpdate().catch((error) => log(`download failed: ${shortMessage(error)}`));
 	});
 	autoUpdater.on("update-not-available", (info) => {
+		const manual = manualRequested;
+		manualRequested = false;
 		log(`no update available (current ${info.version ?? "?"})`);
+		if (manual) showResult("DSH Studio 已是最新版本", `当前 ${app.getVersion()} 已是最新。`);
 	});
 	autoUpdater.on("download-progress", (progress) => {
 		const percent = Math.floor(progress.percent);
@@ -82,7 +95,11 @@ function armEvents() {
 		if (choice === 1) quitToInstall();
 	});
 	autoUpdater.on("error", (error) => {
-		log(`update error: ${shortMessage(error)}`);
+		const manual = manualRequested;
+		manualRequested = false;
+		const message = shortMessage(error);
+		log(`update error: ${message}`);
+		if (manual) showResult("检查更新失败", `${message}\n\n详情见日志。`);
 	});
 }
 
@@ -100,11 +117,16 @@ export function setupUpdater({ delayMs = 10000 } = {}) {
 	log(`armed (first check in ${Math.round(delayMs / 1000)} s)`);
 }
 
-/** Manual check (tray menu). */
+/** Manual check (tray menu) — must produce a visible result. */
 export function checkNow() {
 	if (!updaterState.enabled) return;
+	manualRequested = true;
 	lastLoggedPercent = -1;
-	void autoUpdater.checkForUpdates().catch((error) => log(`check failed: ${shortMessage(error)}`));
+	void autoUpdater.checkForUpdates().catch((error) => {
+		manualRequested = false;
+		log(`check failed: ${shortMessage(error)}`);
+		showResult("检查更新失败", shortMessage(error));
+	});
 }
 
 /** User confirmed: let the updater quit the app and install. */
