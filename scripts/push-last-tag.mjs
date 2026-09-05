@@ -13,16 +13,25 @@ function gitOut(args) {
 }
 
 async function pushWithRetry(args, { tries = 3, rebase = false } = {}) {
-	const isRejected = (e) => /rejected|fetch first|non-fast-forward/i.test(String(e?.message ?? e));
+	const syncFirst = async () => {
+		try {
+			console.log("先同步远端（pull --rebase origin main）…");
+			execFileSync("git", ["pull", "--rebase", "origin", "main"], { stdio: "inherit", cwd: ROOT });
+			return true;
+		} catch (error) {
+			console.log(`同步失败（${String(error?.message ?? error).split("\n")[0]}），继续尝试推送…`);
+			return false;
+		}
+	};
+	if (rebase) await syncFirst();
 	for (let attempt = 1; attempt <= tries; attempt++) {
 		try {
 			console.log(`\n$ git push ${args.join(" ")}（第 ${attempt}/${tries} 次）`);
 			execFileSync("git", ["push", ...args], { stdio: "inherit", cwd: ROOT });
 			return 0;
 		} catch (error) {
-			if (rebase && attempt === 1 && isRejected(error)) {
-				console.log("远端有更新，先 pull --rebase 再推送…");
-				execFileSync("git", ["pull", "--rebase", "origin", "main"], { stdio: "inherit", cwd: ROOT });
+			if (rebase && attempt < tries) {
+				await syncFirst();
 				continue;
 			}
 			if (attempt < tries) {
