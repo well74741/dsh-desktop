@@ -37,12 +37,17 @@ const RETRY_DELAY_MS = 3000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function showResult(title, body) {
+/** Instant, non-blocking status toast (modal only as last-resort fallback). */
+function toast(title, body) {
 	if (Notification.isSupported()) {
 		new Notification({ title, body }).show();
 	} else {
 		dialog.showMessageBoxSync({ type: "info", title, message: body, buttons: ["确定"], noLink: true });
 	}
+}
+
+function showResult(title, body) {
+	toast(title, body);
 }
 
 function log(message) {
@@ -68,6 +73,7 @@ function armEvents() {
 	autoUpdater.on("checking-for-update", () => log("checking for update..."));
 	autoUpdater.on("update-available", (info) => {
 		log(`update available: ${info.version}`);
+		toast("DSH Studio 更新", `发现新版本 ${info.version}，正在后台下载…`);
 		void autoUpdater.downloadUpdate().catch((error) => log(`download failed: ${shortMessage(error)}`));
 	});
 	autoUpdater.on("update-not-available", (info) => {
@@ -119,11 +125,12 @@ export function setupUpdater({ delayMs = 10000 } = {}) {
 	log(`armed (first check in ${Math.round(delayMs / 1000)} s)`);
 }
 
-/** Manual check (tray menu) — visible result, retries transient network errors. */
+/** Manual check (tray/menu) — instant status toast, retries transient errors. */
 export async function checkNow() {
 	if (!updaterState.enabled) return;
 	manualRequested = true;
 	lastLoggedPercent = -1;
+	toast("DSH Studio 更新", "正在检查更新…（网络不稳会自动重试）");
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 		try {
 			await autoUpdater.checkForUpdates();
@@ -137,7 +144,7 @@ export async function checkNow() {
 			}
 			manualRequested = false;
 			const message = shortMessage(error);
-			showResult("检查更新失败", `${message}\n\n可稍后重试，或点托盘“打开下载页（浏览器）”手动下载。`);
+			showResult("检查更新失败", `${message}\n\n可稍后重试，或点“打开下载页（手动更新）”下载。`);
 		}
 	}
 }
