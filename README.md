@@ -71,9 +71,11 @@ scripts/make-icon.mjs   无依赖 PNG 图标生成
 
 ## 发布（GitHub：https://github.com/well74741/dsh-desktop）
 
-**自动（推荐）**：`.github/workflows/release.yml` 已就位，且使用仓库内置的 `GITHUB_TOKEN`（**无需创建 PAT / 无需添加 Secret**）。流程：升 `package.json` 版本 → `git tag v<版本>` → `git push origin v<版本>` → Actions 自动构建 NSIS 并发布到 Releases。
+**网页一键发布（推荐，纯 UI）**：仓库 **Actions → release → Run workflow → 选 patch/minor/major**。网页任务会自动：升级版本号 → 提交 → 打标签 `vX.Y.Z` → 推送 → 触发构建并把安装包发布到 Releases。本地只需先用 GitHub Desktop 推代码。
 
-**手动（可选）**：本地 `GH_TOKEN=<你的 classic PAT> npm run dist:publish`（先打 tag）或 `npm run dist` 后在 Releases 网页手动上传 `setup.exe`+`latest.yml`+`blockmap`。仅手动发布才需要建 PAT（Settings → Developer settings → Personal access tokens → Tokens (classic) → 勾 `repo`）。
+**本地双击**：`release.bat`（输版本号 → 自动 bump/提交/打标签/推送）。
+
+**Tag 直发**：`git push origin vX.Y.Z` 也会自动构建发布。无需任何 PAT/Secret（用内置 `GITHUB_TOKEN`）。
 
 > Windows 代码签名证书暂缺（未签名，SmartScreen 会提示）；获取证书后可加 `win.signingHashAlgorithms`/证书配置或在 Actions 注入 CSC 环境变量。
 

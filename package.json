@@ -18,7 +18,8 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win nsis --publish never",
     "dist:publish": "electron-builder --win nsis --publish always",
-    "release": "node ./scripts/release.mjs"
+    "release": "node ./scripts/release.mjs",
+    "bump": "node ./scripts/bump-version.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-group": "^1.0.2",
