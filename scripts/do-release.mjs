@@ -20,6 +20,26 @@ function run(args) {
 	execFileSync("git", args, { stdio: "inherit", cwd: ROOT });
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Push with retries (GitHub connection can be flaky / 502). */
+async function pushWithRetry(args, tries = 3) {
+	for (let attempt = 1; attempt <= tries; attempt++) {
+		try {
+			console.log(`\n$ git push ${args.join(" ")}（第 ${attempt}/${tries} 次）`);
+			execFileSync("git", ["push", ...args], { stdio: "inherit", cwd: ROOT });
+			return;
+		} catch (error) {
+			if (attempt < tries) {
+				console.log(`推送失败（${String(error?.message ?? error).split("\n")[0]}），5 秒后重试…`);
+				await sleep(5000);
+			} else {
+				throw error;
+			}
+		}
+	}
+}
+
 export async function main() {
 	console.log("DSH Studio — 一键发版（自动上传并触发 Actions 发布）");
 
@@ -46,12 +66,11 @@ export async function main() {
 	if (exists === "") run(["tag", `v${newVersion}`]);
 	else console.log(`标签 v${newVersion} 已存在，跳过创建`);
 
-	run(["push", "origin", "main"]);
-	run(["push", "origin", `v${newVersion}`]);
+	await pushWithRetry(["origin", "main"]);
+	await pushWithRetry(["origin", `v${newVersion}`]);
 
 	console.log(`\n完成 ✅ 已上传 v${newVersion}，Actions 正在自动构建发布…`);
 	console.log("查看进度: https://github.com/well74741/dsh-desktop/actions");
-	console.log("（若上面 push 报网络/登录错：网络恢复后执行  git push origin main && git push origin v" + newVersion + " ）");
 }
 
 if (process.argv[1] && process.argv[1].replace(/\\/g, "/").endsWith("do-release.mjs")) {

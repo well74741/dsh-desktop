@@ -19,6 +19,26 @@ function run(args) {
 	execFileSync("git", args, { stdio: "inherit", cwd: ROOT });
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Push with retries (your GitHub connection can be flaky / 502). */
+async function pushWithRetry(args, tries = 3) {
+	for (let attempt = 1; attempt <= tries; attempt++) {
+		try {
+			console.log(`\n$ git push ${args.join(" ")}（第 ${attempt}/${tries} 次）`);
+			execFileSync("git", ["push", ...args], { stdio: "inherit", cwd: ROOT });
+			return;
+		} catch (error) {
+			if (attempt < tries) {
+				console.log(`推送失败（${String(error?.message ?? error).split("\n")[0]}），5 秒后重试…`);
+				await sleep(5000);
+			} else {
+				throw error;
+			}
+		}
+	}
+}
+
 export async function main() {
 	console.log("DSH Studio — 提交并上传");
 	const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }).trim();
@@ -29,8 +49,8 @@ export async function main() {
 		run(["add", "-A"]);
 		run(["commit", "-m", message]);
 	}
-	run(["push", "origin", "main"]);
-	console.log("\n上传完成 ✅（若上面报网络/登录错，网络恢复后重跑本脚本即可）");
+	await pushWithRetry(["origin", "main"]);
+	console.log("\n上传完成 ✅");
 }
 
 if (process.argv[1] && process.argv[1].replace(/\\/g, "/").endsWith(SELF.split("/").pop())) {
