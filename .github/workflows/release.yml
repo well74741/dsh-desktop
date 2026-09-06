@@ -74,25 +74,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # electron-builder appends to any existing release for the tag, which over
-      # time produced duplicate Releases with split assets (exe in one, blockmap
-      # in another) that break auto-update. Remove leftover release rows for
-      # this tag first (keep the tag itself), so publishing creates one
-      # complete Release.
-      - name: Clean leftover release rows for this tag
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release delete "${GITHUB_REF_NAME}" --yes || true
-
-      - name: Build & publish NSIS installer to GitHub Releases
+      # Build only — publishing happens in the next step as ONE deterministic
+      # Release. (electron-builder's own incremental publish created duplicate
+      # Release rows with split assets, which broke auto-update.)
+      - name: Build NSIS installer
         env:
           # Built-in GitHub token: no PAT/secret setup needed.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No code-signing certificate yet; disable auto certificate discovery.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --win nsis --publish always
+        run: npx electron-builder --win nsis --publish never
+
+      # Publish exactly one Release row holding setup.exe + .blockmap +
+      # latest.yml together. Leftover rows for the tag are removed first.
+      - name: Publish single Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release delete "${TAG}" --yes || true
+          gh release create "${TAG}" \
+            release/DSH-Studio-*.exe \
+            release/DSH-Studio-*.exe.blockmap \
+            release/latest.yml \
+            --title "${TAG}" \
+            --notes "DSH Studio ${TAG}"
 
       - name: Show artifacts
         run: Get-ChildItem release -File | Select-Object Name, Length
