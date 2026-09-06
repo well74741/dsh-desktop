@@ -409,6 +409,112 @@ function createWindow(url) {
 		if (/^https?:\/\//u.test(target)) void shell.openExternal(target);
 		return { action: "deny" };
 	});
+	installReferenceButtonInjector();
+}
+
+// -- Experimental: floating "引用文件" button over the official web UI -------
+// The official composer opens its file/session picker when the draft ends with
+// "@". This shell-only helper injects a small floating button that focuses the
+// composer and types "@" for the user, so the picker opens exactly as if typed.
+// It never touches kernel code; if the official UI changes shape the worst
+// outcome is a misplaced/inert button (the user can still type "@" by hand).
+const REF_BTN_SCRIPT = `(() => {
+	const ID = "__dsh_studio_ref_btn";
+	let btn = document.getElementById(ID);
+	if (btn === null) {
+		btn = document.createElement("button");
+		btn.id = ID;
+		btn.type = "button";
+		btn.textContent = "引用文件 @";
+		btn.title = "打开引用选择器（等同在输入框输入 @）：可精确选择单个文件或对话";
+		const style = {
+			position: "fixed",
+			zIndex: "2147483000",
+			cursor: "pointer",
+			background: "rgba(36,40,50,0.97)",
+			color: "#dde3ec",
+			border: "1px solid #4a5162",
+			borderRadius: "999px",
+			padding: "5px 13px",
+			fontSize: "12px",
+			lineHeight: "18px",
+			fontFamily: "system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif",
+			boxShadow: "0 2px 10px rgba(0,0,0,0.35)",
+			display: "none",
+			userSelect: "none"
+		};
+		for (const key of Object.keys(style)) btn.style[key] = style[key];
+		btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(52,58,72,0.98)"; });
+		btn.addEventListener("mouseleave", () => { btn.style.background = "rgba(36,40,50,0.97)"; });
+		btn.addEventListener("click", () => {
+			const editable = pickEditable();
+			if (editable === null) return;
+			try {
+				editable.focus();
+				const range = document.createRange();
+				range.selectNodeContents(editable);
+				range.collapse(false);
+				const sel = window.getSelection();
+				sel.removeAllRanges();
+				sel.addRange(range);
+				const inserted = document.execCommand("insertText", false, "@");
+				if (!inserted) {
+					editable.dispatchEvent(new InputEvent("beforeinput", {
+						bubbles: true, cancelable: true, inputType: "insertText", data: "@"
+					}));
+				}
+			} catch { /* keep the button harmless */ }
+		});
+		document.body.appendChild(btn);
+	}
+	const editable = pickEditable();
+	const show = editable !== null;
+	btn.style.display = show ? "block" : "none";
+	if (show) {
+		const rect = editable.getBoundingClientRect();
+		const width = btn.offsetWidth || 96;
+		const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+		const top = Math.max(8, rect.top - 36);
+		btn.style.left = left + "px";
+		btn.style.top = top + "px";
+		btn.style.right = "auto";
+		btn.style.bottom = "auto";
+	}
+	function pickEditable() {
+		const visible = (el) => {
+			const r = el.getBoundingClientRect();
+			return r.width > 60 && r.height > 0 &&
+				r.bottom > window.innerHeight * 0.3 && r.bottom <= window.innerHeight;
+		};
+		const list = [
+			...document.querySelectorAll(
+				"textarea, [contenteditable=\\"true\\"], [contenteditable=\\"\\"], [role=\\"textbox\\"], input[type=\\"text\\"]"
+			)
+		].filter(visible).sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+		return list[0] ?? null;
+	}
+})()`;
+
+let refBtnTimer = null;
+
+/** Keep the injected reference button present & positioned in the main window. */
+function installReferenceButtonInjector() {
+	if (refBtnTimer !== null || isWebLike()) return;
+	const apply = () => {
+		if (mainWindow === null || mainWindow.isDestroyed()) return;
+		mainWindow.webContents.executeJavaScript(REF_BTN_SCRIPT).catch(() => { /* UI changed; ignore */ });
+	};
+	apply();
+	if (mainWindow !== null) {
+		mainWindow.webContents.on("did-finish-load", apply);
+		mainWindow.on("closed", () => {
+			if (refBtnTimer !== null) {
+				clearInterval(refBtnTimer);
+				refBtnTimer = null;
+			}
+		});
+	}
+	refBtnTimer = setInterval(apply, 1800);
 }
 
 function buildTray() {
