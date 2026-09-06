@@ -74,6 +74,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # electron-builder appends to any existing release for the tag, which over
+      # time produced duplicate Releases with split assets (exe in one, blockmap
+      # in another) that break auto-update. Remove leftover release rows for
+      # this tag first (keep the tag itself), so publishing creates one
+      # complete Release.
+      - name: Clean leftover release rows for this tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${GITHUB_REF_NAME}" --yes || true
+
       - name: Build & publish NSIS installer to GitHub Releases
         env:
           # Built-in GitHub token: no PAT/secret setup needed.
