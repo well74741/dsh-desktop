@@ -29,8 +29,10 @@
  */
 import { createInterface } from "node:readline";
 import { readdir } from "node:fs/promises";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { networkInterfaces, tmpdir } from "node:os";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 
 /** Core-only flags consumed here, never forwarded to the web app's own parser. */
@@ -47,6 +49,57 @@ const FLAGS = Object.freeze({
 
 /** Port 0 = OS-assigned port; --no-open keeps the browser handoff off (the shell owns the window). */
 const DEFAULT_WEB_ARGS = ["--port", "0", "--no-open"];
+
+/**
+ * 手机接力（外壳层开关）：桌面壳在它自己的进程里起一个“转发桥”，把
+ * 局域网固定端口 2880 转发到内核的本机端口。因此内核永远只监听 127.0.0.1，
+ * 开关手机接力不再需要重启内核。
+ *
+ * 本文件只在启动时做一件事：用官方 overlay 补丁（CLI 的 `--patch` 同款机制）
+ * 把“当前局域网 IPv4 列表”写进 connection 的 trustedHosts，让经桥转发进来、
+ * Host 头为局域网 IP 的请求能通过内核的浏览器信任栅栏。不修改任何内核代码。
+ */
+const LAN_OVERLAY_DIR = join(tmpdir(), "dsh-studio-lan");
+
+function collectLanIpv4() {
+	return Object.values(networkInterfaces()).flat()
+		.filter((iface) => iface !== void 0 && iface.family === "IPv4" && !iface.internal)
+		.map((iface) => iface.address);
+}
+
+/** 写一次性 overlay 补丁文件（无局域网地址时返回 null）。 */
+function writeTrustOverlay() {
+	const ips = collectLanIpv4();
+	if (ips.length === 0) return null;
+	mkdirSync(LAN_OVERLAY_DIR, { recursive: true });
+	const file = join(LAN_OVERLAY_DIR, `overlay-${process.pid}.patch.yml`);
+	const lines = [
+		"# DSH Studio phone-relay trusted-hosts overlay（桌面壳撰写；应用在内核 bundle 层之后）",
+		"- id: connection",
+		"  config:",
+		"    trustedHosts:"
+	];
+	for (const ip of ips) lines.push(`      - ${JSON.stringify(ip)}`);
+	writeFileSync(file, lines.join("\n") + "\n", "utf8");
+	return file;
+}
+
+function removeLanOverlay(file) {
+	try {
+		rmSync(file, { force: true });
+	} catch {
+		/* 临时文件清理失败无碍 */
+	}
+	try {
+		// 目录为空时顺手删掉；非空（其它实例仍在用）则留给下一次。
+		rmSync(dirname(file), { force: false });
+	} catch {
+		/* 目录非空或不存在，忽略 */
+	}
+}
+
+/** 尚未消费完的 overlay 补丁文件（boot 抛错时在顶层 catch 里兜底清理）。 */
+let pendingLanOverlay = null;
 
 /**
  * The published dsh CLI ships its profile boot under hashed filenames
@@ -98,12 +151,21 @@ async function main() {
 	const environment = loadLayeredEnv("dsh");
 	const runProfileFn = await resolveRunProfile();
 
+	// overlay 补丁文件只在启动装配阶段被读取，装配完成后即可删除。
+	const overlayFile = writeTrustOverlay();
+	pendingLanOverlay = overlayFile;
+
 	const { ctx, shutdown } = await runProfileFn({
 		environment,
 		profile: "web",
-		patchFiles: [],
+		patchFiles: overlayFile === null ? [] : [overlayFile],
 		args: webArgs
 	});
+
+	if (overlayFile !== null) {
+		removeLanOverlay(overlayFile);
+		pendingLanOverlay = null;
+	}
 
 	const port = await waitForPort(ctx);
 	const webUrl = `http://127.0.0.1:${String(port)}`;
@@ -146,6 +208,10 @@ async function main() {
 }
 
 main().catch((error) => {
+	if (pendingLanOverlay !== null) {
+		removeLanOverlay(pendingLanOverlay);
+		pendingLanOverlay = null;
+	}
 	console.error(`[dsh-studio:core] fatal: ${error instanceof Error ? error.stack : String(error)}`);
 	process.exit(1);
 });

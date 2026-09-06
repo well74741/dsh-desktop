@@ -21,12 +21,15 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, Notification, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, Notification, powerSaveBlocker, screen, shell } from "electron";
 import { dirname, join } from "node:path";
+import { networkInterfaces } from "node:os";
+import { connect, createServer } from "node:net";
 import { setupUpdater, checkNow, updaterState } from "./updater.mjs";
 import { initFileLog, logFilePath, readLogTail } from "./logger.mjs";
 import { configurePluginService, registerPluginIpc } from "./plugin-service.mjs";
 import { configureReleaseService, registerReleaseIpc } from "./release-service.mjs";
+import { registerLanIpc, broadcastLanState } from "./lan-service.mjs";
 import { loadSettings, saveSettings } from "./settings.mjs";
 
 // Paths are relative to this file (src/main/): "../../" is the project root.
@@ -35,6 +38,10 @@ const CORE_ENTRY = fileURLToPath(new URL("../core/run.mjs", import.meta.url));
 const TRAY_ICON = join(ASSETS_DIR, "tray-32.png");
 const PANEL_FILE = fileURLToPath(new URL("../panel/index.html", import.meta.url));
 const PANEL_PRELOAD = fileURLToPath(new URL("../preload/preload-panel.cjs", import.meta.url));
+const LAN_FILE = fileURLToPath(new URL("../panel/lan.html", import.meta.url));
+const LAN_PRELOAD = fileURLToPath(new URL("../preload/preload-lan.cjs", import.meta.url));
+// 手机/局域网模式使用固定端口，这样手机收藏的地址不会每次重启都变。
+const LAN_PORT_DEFAULT = 2880;
 const RELEASE_FILE = fileURLToPath(new URL("../release/index.html", import.meta.url));
 const RELEASE_PRELOAD = fileURLToPath(new URL("../preload/preload-release.cjs", import.meta.url));
 // The dev repository this app runs from (exists only in source checkouts).
@@ -70,9 +77,29 @@ let hiddenAtStart = ARGV.has("--hidden");
 let deepLinkHandled = false;
 const pluginPanels = [];
 const releasePanels = [];
+const lanPanels = [];
+// 最近一次内核就绪的信息（非空 = 内核已就绪）。
+let lanRuntime = null;
+// 内核当前监听的本机端口（转发桥的目标）。
+let kernelPort = null;
+// 转发桥：把局域网 2880 转发到内核本机端口（免重启接力的关键）。
+let bridgeServer = null;
+// 主窗口是否已加载过一次内核地址（第二次内核就绪起一律强制重载，保证自动重连）。
+let mainWindowBooted = false;
 
 function releasePanelWindows() {
 	return [...releasePanels];
+}
+
+function lanPanelWindows() {
+	return [...lanPanels];
+}
+
+/** 接收手机访问状态推送的窗口：手机访问面板 + 桌面主窗口（聊天界面按钮）。 */
+function lanBroadcastWindows() {
+	const list = [...lanPanels];
+	if (mainWindow !== null && !mainWindow.isDestroyed()) list.push(mainWindow);
+	return list;
 }
 
 function appVersion() {
@@ -119,6 +146,42 @@ function log(message) {
 	console.log(`[dsh-studio] ${message}`);
 }
 
+// ---- 防休眠 ----
+let powerBlockerId = null;
+
+/** 按当前状态决定是否阻止系统休眠：
+ *  手机接力开启(有手机要连) 或 主窗口可见(正在使用) → 不休眠；
+ *  缩到托盘且未开手机接力 → 允许系统正常休眠（闲置）。 */
+function applyPowerGuard() {
+	const wantKeepAwake =
+		!MODE_SELFCHECK &&
+		!isWebLike() &&
+		(loadSettings().lanMode === true ||
+			(mainWindow !== null && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized()));
+	if (wantKeepAwake) {
+		if (powerBlockerId === null) {
+			powerBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+			log(`power guard: preventing system sleep (id ${String(powerBlockerId)})`);
+		}
+	} else if (powerBlockerId !== null) {
+		powerSaveBlocker.stop(powerBlockerId);
+		log("power guard: system sleep allowed again");
+		powerBlockerId = null;
+	}
+}
+
+/** 当前电脑各网卡的 IPv4 地址与 MAC（手机“网络唤醒/WOL”设置需要 MAC）。 */
+function lanMacAddresses() {
+	const out = [];
+	for (const list of Object.values(networkInterfaces())) {
+		for (const entry of list ?? []) {
+			if (entry === void 0 || entry.family !== "IPv4" || entry.internal) continue;
+			out.push({ address: entry.address, mac: entry.mac });
+		}
+	}
+	return out;
+}
+
 function stopCore(code = 0) {
 	if (disposed) return Promise.resolve();
 	disposed = true;
@@ -154,6 +217,11 @@ async function quitApp() {
 
 function spawnCore() {
 	log(`spawning harness core (Electron-as-Node child, runtime=${runtimeLabel()})`);
+	// 内核重启期间手机访问状态先置为“重启中”，并停掉转发桥、通知已打开的面板窗口。
+	lanRuntime = null;
+	kernelPort = null;
+	stopBridge();
+	broadcastLanState(lanSnapshot());
 	// --expose-internals: the harness loader uses Node internals for config
 	// hot-reload (HMR); under plain Node it falls back to a native helper that
 	// is not built for Electron's runtime, so we pass the official flag instead.
@@ -275,6 +343,95 @@ async function restartCore() {
 	return { ok: true };
 }
 
+/** 从内核就绪 URL 里取出“钥匙”（token）。 */
+function extractLaunchToken(urlString) {
+	if (urlString === null || urlString === undefined) return null;
+	try {
+		return new URL(urlString).searchParams.get("token");
+	} catch {
+		return null;
+	}
+}
+
+/** 手机访问面板读到的状态快照（免重启桥接模式）。 */
+function lanSnapshot() {
+	const enabled = loadSettings().lanMode === true;
+	const kernelReady = lanRuntime !== null && readyUrl !== null;
+	const addrs = lanMacAddresses().map((e) => e.address);
+	const first = addrs[0] ?? null;
+	const token = extractLaunchToken(readyUrl);
+	const lanUrl =
+		enabled && bridgeServer !== null && kernelReady && first !== null
+			? `http://${first}:${String(LAN_PORT_DEFAULT)}/?token=${encodeURIComponent(token ?? "")}`
+			: null;
+	return {
+		enabled,
+		ready: kernelReady,
+		bridgeActive: bridgeServer !== null,
+		// 手机访问端口（桥的固定端口，不是内核随机端口）。
+		port: enabled && bridgeServer !== null ? LAN_PORT_DEFAULT : null,
+		lanUrl,
+		lanAddresses: addrs,
+		// 电脑各网卡的 IPv4 与 MAC（手机“网络唤醒/WOL”设置需要）。
+		macs: lanMacAddresses(),
+		coreUrl: readyUrl
+	};
+}
+
+/** 停止转发桥（免重启模式：关手机接力=只停桥，不动内核）。 */
+function stopBridge() {
+	if (bridgeServer !== null) {
+		try {
+			bridgeServer.close();
+		} catch { /* 忽略 */ }
+		bridgeServer = null;
+		log("phone relay stopped");
+	}
+}
+
+/** 按当前设置同步转发桥：开启且内核就绪时监听 0.0.0.0:2880 → 内核本机端口。 */
+function syncBridge() {
+	const want = loadSettings().lanMode === true && kernelPort !== null;
+	if (!want) {
+		stopBridge();
+		return;
+	}
+	if (bridgeServer !== null) {
+		if (bridgeServer.targetPort === kernelPort) return;
+		stopBridge();
+	}
+	const server = createServer((socket) => {
+		const target = connect({ host: "127.0.0.1", port: kernelPort });
+		socket.on("error", () => target.destroy());
+		target.on("error", () => socket.destroy());
+		socket.pipe(target);
+		target.pipe(socket);
+	});
+	server.targetPort = kernelPort;
+	server.on("error", (error) => {
+		log(`phone relay error: ${String(error?.message ?? error)}`);
+		if (bridgeServer === server) bridgeServer = null;
+		broadcastLanState(lanSnapshot());
+	});
+	server.listen(LAN_PORT_DEFAULT, "0.0.0.0", () => {
+		log(`phone relay listening 0.0.0.0:${String(LAN_PORT_DEFAULT)} → 127.0.0.1:${String(kernelPort)}`);
+		broadcastLanState(lanSnapshot());
+	});
+	bridgeServer = server;
+}
+
+/** 切换手机接力：只启停转发桥，不重启内核（正在进行的任务不受影响）。 */
+async function setLanMode(enabled) {
+	const want = Boolean(enabled);
+	if (loadSettings().lanMode === want) return { state: lanSnapshot() };
+	saveSettings({ lanMode: want });
+	log(`phone relay ${want ? "on" : "off"} (kernel untouched)`);
+	syncBridge();
+	broadcastLanState(lanSnapshot());
+	applyPowerGuard();
+	return { state: lanSnapshot() };
+}
+
 function pluginPanelWindows() {
 	return [...pluginPanels];
 }
@@ -302,6 +459,7 @@ function openPluginPanel() {
 			preload: PANEL_PRELOAD
 		}
 	});
+	win.removeMenu();
 	pluginPanels.push(win);
 	win.webContents.on("did-fail-load", (_event, code, description) => {
 		log(`plugin panel failed to load: ${String(code)} ${String(description)}`);
@@ -318,6 +476,75 @@ function openPluginPanel() {
 	});
 	log("opening plugin market panel");
 	void win.loadFile(PANEL_FILE);
+}
+
+/**
+ * 让“手机访问”面板出现在主窗口内容区右上区域。
+ * 坐标一律取整（小数会让 Electron setPosition 报“conversion failure”）。
+ */
+function positionLanPanelNearMain(win) {
+	if (mainWindow === null || mainWindow.isDestroyed()) return;
+	let b = null;
+	try { b = mainWindow.getContentBounds(); } catch { b = null; }
+	if (b === null) { try { b = mainWindow.getBounds(); } catch { b = null; } }
+	if (b === null) return;
+	const size = win.getSize();
+	const width = size[0] || 640;
+	const height = size[1] || 780;
+	const x = Math.max(0, Math.round(b.x + b.width - width - 16));
+	const y = Math.max(0, Math.round(b.y + 40));
+	const display = screen.getDisplayMatching({ x, y, width, height });
+	const work = display === null || display === undefined ? null : display.workArea;
+	if (work !== null) {
+		win.setPosition(
+			Math.min(x, Math.max(work.x, work.x + work.width - width)),
+			Math.min(y, Math.max(work.y, work.y + work.height - 40))
+		);
+	} else {
+		win.setPosition(x, y);
+	}
+}
+/** Open (or focus) the phone/LAN-access panel window. */
+function openLanPanel() {
+	const existing = lanPanels.find((win) => !win.isDestroyed());
+	if (existing) {
+		existing.show();
+		existing.focus();
+		return;
+	}
+	const win = new BrowserWindow({
+		width: 640,
+		height: 780,
+		minWidth: 480,
+		minHeight: 560,
+		title: "手机访问 · DSH Studio",
+		icon: nativeImage.createFromPath(TRAY_ICON),
+		backgroundColor: "#111318",
+		webPreferences: {
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			preload: LAN_PRELOAD
+		}
+	});
+	win.removeMenu();
+	lanPanels.push(win);
+	win.webContents.on("did-fail-load", (_event, code, description) => {
+		log(`lan panel failed to load: ${String(code)} ${String(description)}`);
+	});
+	win.webContents.on("console-message", (_event, level, message) => {
+		if (String(message ?? "") !== "") log(`[lan-panel console] ${String(message)}`);
+	});
+	win.webContents.on("preload-error", (_event, path, error) => {
+		log(`lan panel preload error: ${String(path)} ${String(error?.message ?? error)}`);
+	});
+	win.on("closed", () => {
+		const index = lanPanels.indexOf(win);
+		if (index !== -1) lanPanels.splice(index, 1);
+	});
+	positionLanPanelNearMain(win);
+	log("opening lan access panel");
+	void win.loadFile(LAN_FILE);
 }
 
 /** Open (or focus) the release-center panel (developer tool). */
@@ -343,6 +570,7 @@ function openReleasePanel() {
 			preload: RELEASE_PRELOAD
 		}
 	});
+	win.removeMenu();
 	releasePanels.push(win);
 	win.webContents.on("did-fail-load", (_event, code, description) => {
 		log(`release panel failed to load: ${String(code)} ${String(description)}`);
@@ -409,6 +637,11 @@ function createWindow(url) {
 		if (/^https?:\/\//u.test(target)) void shell.openExternal(target);
 		return { action: "deny" };
 	});
+	// 按状态决定防休眠（主窗口可见或手机接力开启时阻止系统休眠）。
+	mainWindow.on("show", applyPowerGuard);
+	mainWindow.on("hide", applyPowerGuard);
+	mainWindow.on("minimize", applyPowerGuard);
+	mainWindow.on("restore", applyPowerGuard);
 	installReferenceButtonInjector();
 }
 
@@ -541,6 +774,10 @@ function buildTray() {
 			click: () => openPluginPanel()
 		},
 		{
+			label: "手机访问（局域网）…",
+			click: () => openLanPanel()
+		},
+		{
 			label: "发布中心…",
 			click: () => openReleasePanel()
 		},
@@ -583,6 +820,8 @@ function buildTray() {
 async function onCoreReady(info) {
 	readyUrl = info.url;
 	coreExitCount = 0;
+	lanRuntime = { port: info.port };
+	kernelPort = info.port;
 	log(`core ready: ${info.url} (port ${String(info.port)}, DSH_HOME=${info.dshHome})`);
 
 	if (MODE_SELFCHECK) {
@@ -600,7 +839,12 @@ async function onCoreReady(info) {
 	}
 	log(ok ? "web UI responds (HTTP 200)" : "warning: web UI did not answer HTTP 200 yet");
 
+	// 内核就绪后，按当前设置启/停转发桥（免重启接力；内核端口变了会自动换目标）。
+	syncBridge();
 	buildTray();
+
+	// 通知已打开的“手机访问”面板：内核已就绪（含局域网地址）。
+	broadcastLanState(lanSnapshot());
 
 	if (restartExpected) {
 		restartExpected = false;
@@ -625,16 +869,19 @@ async function onCoreReady(info) {
 		return;
 	}
 
-	// On core restarts (plugin changes) the port/token change — reload the window.
+	// 内核每次重启后（开关手机访问/插件变更）都强制把主窗口切到当前内核地址，
+	// 避免页面停留在旧地址上显示“连接断开”需要手动重连。
 	if (mainWindow !== null && !mainWindow.isDestroyed()) {
-		if (loadedUrl !== info.url) {
-			log("reloading main window onto the new core URL");
+		if (!mainWindowBooted || loadedUrl !== info.url) {
+			mainWindowBooted = true;
+			log("reloading main window onto the current core URL");
 			loadedUrl = info.url;
 			void mainWindow.loadURL(info.url);
 		}
 		return;
 	}
 	createWindow(info.url);
+	mainWindowBooted = true;
 
 	// First-instance deep link (dsh://… on the command line) — once per boot.
 	if (!deepLinkHandled && !MODE_SELFCHECK) {
@@ -718,6 +965,7 @@ function buildAppMenu() {
 		{
 			label: "文件",
 			submenu: [
+				{ label: "手机访问（局域网）…", click: () => openLanPanel() },
 				{ label: "插件市场…", click: () => openPluginPanel() },
 				{ label: "发布中心…", click: () => openReleasePanel() },
 				{ type: "separator" },
@@ -788,9 +1036,32 @@ function buildAppMenu() {
 					}
 				}
 			]
+		},
+		// 常驻入口：放在“帮助”右边，不用躲进深层菜单。
+		{
+			label: "📱 手机接力",
+			submenu: [
+				{
+					label: "打开手机访问窗口…",
+					click: () => openLanPanel()
+				},
+				{ type: "separator" },
+				{
+					label: "开启手机接力",
+					type: "checkbox",
+					checked: loadSettings().lanMode === true,
+					click: (item) => void setLanModeFromMenu(item.checked)
+				}
+			]
 		}
 	];
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** 从菜单勾选手机接力（勾选后刷新菜单以保持状态一致）。 */
+async function setLanModeFromMenu(enabled) {
+	await setLanMode(Boolean(enabled));
+	buildAppMenu();
 }
 
 async function ensureSingleInstance() {
@@ -835,6 +1106,12 @@ void (async () => {
 		execPath: process.execPath
 	});
 	registerPluginIpc({ onRestartCore: restartCore });
+	registerLanIpc({
+		getPanelWindows: lanBroadcastWindows,
+		onRestartCore: setLanMode,
+		getSnapshot: lanSnapshot,
+		openPanelFn: openLanPanel
+	});
 	configureReleaseService({
 		getWindows: releasePanelWindows,
 		gitRepoRoot: REPO_ROOT,

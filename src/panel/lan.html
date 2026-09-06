@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>手机访问 · DSH Studio</title>
+<style>
+	:root { color-scheme: dark; }
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		padding: 22px 26px 30px;
+		background: #111318;
+		color: #e8eaee;
+		font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+		font-size: 14px;
+		line-height: 1.6;
+	}
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	.sub { color: #9aa3b2; font-size: 12px; margin: 0 0 18px; }
+	.card {
+		background: #191c22;
+		border: 1px solid #2a2f3a;
+		border-radius: 10px;
+		padding: 16px 18px;
+		margin-bottom: 14px;
+	}
+	.row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+	.row h2 { font-size: 15px; margin: 0; }
+	.row .desc { color: #9aa3b2; font-size: 12px; margin: 3px 0 0; }
+	/* 开关 */
+	.switch { position: relative; width: 52px; height: 28px; flex: none; }
+	.switch input { opacity: 0; width: 0; height: 0; }
+	.slider {
+		position: absolute; inset: 0; border-radius: 999px;
+		background: #3a4150; transition: background .15s; cursor: pointer;
+	}
+	.slider::before {
+		content: ""; position: absolute; width: 22px; height: 22px;
+		left: 3px; top: 3px; border-radius: 50%; background: #fff; transition: transform .15s;
+	}
+	.switch input:checked + .slider { background: #2e9e6b; }
+	.switch input:checked + .slider::before { transform: translateX(24px); }
+	.switch input:disabled + .slider { opacity: .5; cursor: default; }
+	.status { font-weight: 600; font-size: 14px; margin: 14px 0 0; }
+	.status.off { color: #e0a05a; }
+	.status.on { color: #4cc38a; }
+	.status.busy { color: #9aa3b2; }
+	.step { margin: 6px 0; }
+	.url-box {
+		background: #0c0e12; border: 1px solid #2a2f3a; border-radius: 8px;
+		padding: 10px 12px; margin: 10px 0; word-break: break-all;
+		font-family: Consolas, Menlo, monospace; font-size: 13px; user-select: all;
+	}
+	.url-label { font-size: 12px; color: #9aa3b2; margin: 10px 0 0; }
+	button {
+		background: #2a2f3a; color: #e8eaee; border: 1px solid #3a4150;
+		border-radius: 7px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+	}
+	button:hover { background: #333a48; }
+	button.primary { background: #2e9e6b; border-color: #2e9e6b; color: #fff; }
+	button.primary:hover { background: #37b47c; }
+	button:disabled { opacity: .55; cursor: default; }
+	.warn {
+		background: #2b2317; border: 1px solid #57431c; color: #e6c98a;
+		border-radius: 8px; padding: 10px 14px; font-size: 13px;
+	}
+	.hint { color: #7f8794; font-size: 12px; margin-top: 16px; }
+	.small { font-size: 12px; color: #9aa3b2; }
+	.copied { color: #4cc38a; font-size: 12px; margin-left: 8px; }
+	#qrImg {
+		display: block; width: 224px; height: 224px; margin: 12px auto 4px;
+		background: #fff; border-radius: 10px; padding: 10px; box-sizing: border-box;
+	}
+	#qrImg[hidden] { display: none; }
+</style>
+</head>
+<body>
+	<h1>📱 手机接力</h1>
+	<p class="sub">把聊天界面“接力”到手机：同一 WiFi 下扫码即进，消息与任务进度实时同步。开启/关闭都不打断正在进行的任务。</p>
+
+	<div class="card">
+		<div class="row">
+			<div>
+				<h2>开启手机接力</h2>
+				<p class="desc">立即生效，不用重启内核、不影响正在跑的任务。关闭时同样即时生效。</p>
+			</div>
+			<label class="switch">
+				<input id="toggle" type="checkbox">
+				<span class="slider"></span>
+			</label>
+		</div>
+		<div id="statusLine" class="status off">读取状态中…</div>
+	</div>
+
+	<div id="offTip" class="card" hidden>
+		<p class="small">当前电脑只允许本机访问。点上面的开关开启后，这里会显示手机要用的地址。</p>
+	</div>
+
+	<div id="onPanel" class="card" hidden>
+		<p class="step">1️⃣ 让手机连上<b>同一个 WiFi</b>（和电脑同一个路由器）。</p>
+		<p class="step">2️⃣ 用手机相机扫下面的二维码，即可打开：</p>
+		<img id="qrImg" alt="手机访问二维码" hidden>
+		<p class="step">扫不了码？复制下面地址发到手机浏览器打开：</p>
+
+		<p class="url-label">带钥匙的完整地址（第一次用这个，之后 30 天内不用再带钥匙）</p>
+		<div class="url-box" id="lanUrl">…</div>
+		<button id="copyFull">复制完整地址</button><span id="copiedFull" class="copied" hidden>已复制 ✓</span>
+
+		<p class="url-label">之后每天直接打开这个简单地址（30 天内免钥匙）</p>
+		<div id="plainUrls" class="url-box"></div>
+
+		<p class="url-label">电脑各网卡 MAC（配置手机“网络唤醒/WOL”App 时填这个）</p>
+		<div id="macList" class="url-box"></div>
+
+		<div class="warn" style="margin-top:14px">
+			⚠️ <b>只在你自己家/可信 WiFi 下开启。</b>开启后，同一 WiFi 的其他设备要先拿到上面这条“带钥匙地址”才能进（有钥匙保护），
+			但毕竟比“只允许本机”多开了一个口子，不用时请把它关掉。电脑上的桌面窗口不受影响，可同时使用。
+		</div>
+	</div>
+
+	<div id="noAddr" class="warn" hidden>
+		已开启，但没找到电脑的局域网地址——请确认电脑已联网（WiFi/网线），然后点右上角托盘图标重新打开本窗口。
+	</div>
+
+	<p class="hint">
+		💡 第一次开启时，Windows 防火墙可能弹出询问，请选择“允许访问 / 专用网络”。
+		如果手机打开显示“需要认证”，说明用的是旧地址：重新点“复制完整地址”换新钥匙即可。
+	</p>
+	<p class="hint">提示：手机上看到的审批/确认按钮也能点，效果和在电脑上点一样。</p>
+
+<script>
+	"use strict";
+	const $ = (id) => document.getElementById(id);
+	const toggle = $("toggle");
+	const statusLine = $("statusLine");
+	let busy = false;
+
+	function esc(text) {
+		return String(text).replace(/[&<>"']/g, (c) => ({
+			"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+		})[c]);
+	}
+
+	async function copy(text, doneId) {
+		const res = await window.dshLan.invoke("lan:copy", text);
+		if (res && res.ok) {
+			$(doneId).hidden = false;
+			setTimeout(() => { $(doneId).hidden = true; }, 1500);
+		}
+	}
+
+	function render(state) {
+		state = state || {};
+		const enabled = Boolean(state.enabled);
+		const ready = Boolean(state.ready);
+		toggle.checked = enabled;
+		toggle.disabled = busy;
+
+		$("offTip").hidden = enabled;
+		$("onPanel").hidden = !enabled || !ready;
+		$("noAddr").hidden = !(enabled && ready && !state.lanUrl);
+
+		if (!enabled) {
+			statusLine.className = "status off";
+			statusLine.textContent = "未开启 —— 电脑目前只允许本机访问";
+			return;
+		}
+		if (!ready) {
+			statusLine.className = "status busy";
+			statusLine.textContent = "内核还没就绪，请稍等片刻再开启…";
+			return;
+		}
+		statusLine.className = "status on";
+		if (!state.bridgeActive) {
+			statusLine.textContent = "已开启 · 正在建立手机访问通道…";
+			return;
+		}
+		statusLine.textContent = `已开启 · 手机访问端口 ${state.port ?? ""}`;
+
+		if (state.lanUrl) {
+			$("lanUrl").textContent = state.lanUrl;
+			const plain = (state.lanAddresses || [])
+				.map((addr) => `http://${addr}:${String(state.port)}`)
+				.join("\n");
+			$("plainUrls").textContent = plain || "—";
+			const macs = (state.macs || []).map((m) => `${m.address} · ${m.mac}`).join("\n");
+			$("macList").textContent = macs || "—";
+			const qr = $("qrImg");
+			qr.hidden = true;
+			window.dshLan.invoke("lan:qr").then((res) => {
+				if (res && res.ok && typeof res.dataUrl === "string" && res.dataUrl !== "") {
+					qr.src = res.dataUrl;
+					qr.hidden = false;
+				}
+			}).catch(() => {});
+		} else {
+			$("qrImg").hidden = true;
+		}
+	}
+
+	toggle.addEventListener("change", async () => {
+		const want = toggle.checked;
+		busy = true;
+		toggle.disabled = true;
+		statusLine.className = "status busy";
+		statusLine.textContent = want ? "正在开启手机接力…" : "正在关闭手机接力…";
+		try {
+			const res = await window.dshLan.invoke("lan:set", want);
+			if (res && res.ok && res.state) render(res.state);
+			else {
+				// 失败时把开关拨回原状
+				toggle.checked = !want;
+				render({ enabled: !want, ready: false });
+				statusLine.textContent = "操作未生效（请重试，或看桌面日志）";
+			}
+		} finally {
+			busy = false;
+		}
+	});
+
+	$("copyFull").addEventListener("click", () => copy($("lanUrl").textContent, "copiedFull"));
+
+	window.dshLan.onState((payload) => {
+		if (payload && payload.type === "state") render(payload.state);
+	});
+	window.dshLan.invoke("lan:get").then(render).catch(() => render(null));
+</script>
+</body>
+</html>

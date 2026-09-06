@@ -8,7 +8,9 @@ import { dirname, join } from "node:path";
 
 const FILE = () => join(app.getPath("userData"), "settings.json");
 const DEFAULTS = {
-	autoStartHidden: false
+	autoStartHidden: false,
+	// 手机/局域网访问开关：true 时内核监听 0.0.0.0 固定端口（外壳层行为）。
+	lanMode: false
 };
 
 let cached = null;
