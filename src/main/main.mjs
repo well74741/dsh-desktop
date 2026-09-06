@@ -19,7 +19,7 @@
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, Notification, shell } from "electron";
 import { dirname, join } from "node:path";
@@ -28,6 +28,7 @@ import { initFileLog, logFilePath, readLogTail } from "./logger.mjs";
 import { configurePluginService, registerPluginIpc } from "./plugin-service.mjs";
 import { configureReleaseService, registerReleaseIpc } from "./release-service.mjs";
 import { loadSettings, saveSettings } from "./settings.mjs";
+import { fetchLatestKernelVersion, readBundledKernelVersion, semverGt } from "./kernel-update.mjs";
 
 // Paths are relative to this file (src/main/): "../../" is the project root.
 const ASSETS_DIR = fileURLToPath(new URL("../../assets", import.meta.url));
@@ -545,6 +546,14 @@ function buildTray() {
 			click: () => openReleasePanel()
 		},
 		{
+			label: "检查官方内核更新…",
+			click: () => void checkKernelUpdate("manual")
+		},
+		{
+			label: "同步官方内核并发布新版…",
+			click: () => void syncKernelFromMenu()
+		},
+		{
 			label: "开机自启",
 			type: "checkbox",
 			checked: isLoginItemEnabled(),
@@ -707,6 +716,177 @@ function registerProtocol() {
 	}
 }
 
+// ---- Kernel-follow: notice official @deepseek-ai/dsh updates ----------------
+// The bundled kernel version is fixed at build time. When the official kernel
+// publishes a newer version we cannot hot-swap it, so we offer to sync the
+// repo dependency, bump the app version and push a tag — GitHub Actions then
+// builds & publishes the installer and the normal auto-update delivers it.
+// Shell-only: nothing here mutates the running kernel.
+let kernelSyncInProgress = false;
+let kernelAutoScheduled = false;
+
+function kernelBundledRoots() {
+	const roots = [];
+	try { roots.push(app.getAppPath()); } catch { /* ignore */ }
+	if (REPO_ROOT !== undefined && REPO_ROOT !== null) roots.push(REPO_ROOT);
+	return roots;
+}
+
+function kernelRepoRoots() {
+	const out = [];
+	const settings = loadSettings();
+	if (typeof settings.releaseProject === "string" && settings.releaseProject !== "") out.push(settings.releaseProject);
+	out.push(REPO_ROOT);
+	try { out.push(app.getAppPath()); } catch { /* ignore */ }
+	return [...new Set(out)].filter((root) => {
+		try {
+			const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+			return manifest.dependencies?.["@deepseek-ai/dsh"] !== undefined
+				&& existsSync(join(root, "scripts/sync-kernel-release.mjs"));
+		} catch {
+			return false;
+		}
+	});
+}
+
+async function checkKernelUpdate(origin) {
+	const latest = await fetchLatestKernelVersion();
+	const bundled = bundledKernelVersion() ?? "?";
+	log(`kernel update check (${origin}): bundled=${bundled} latest=${latest ?? "unreachable"}`);
+	if (latest === null) {
+		if (origin === "manual") {
+			void dialog.showMessageBox({
+				type: "info",
+				title: "官方内核检查",
+				message: "暂时无法访问 npm 源，请稍后再试（已自动尝试官方源与国内镜像）。",
+				buttons: ["确定"]
+			});
+		}
+		return;
+	}
+	if (!semverGt(latest, bundled === "?" ? "0" : bundled)) {
+		if (origin === "manual") {
+			void dialog.showMessageBox({
+				type: "info",
+				title: "官方内核检查",
+				message: `当前已是最新官方内核：${bundled}（npm：${latest}）`,
+				buttons: ["确定"]
+			});
+		}
+		return;
+	}
+	log(`new official kernel available: ${latest} (bundled ${bundled})`);
+	if (!Notification.isSupported()) return;
+	const notice = new Notification({
+		title: "发现官方内核新版本",
+		body: `官方 dsh 内核 ${latest} 已发布（当前内置 ${bundled}）。点此同步发布新版。`,
+		icon: TRAY_ICON
+	});
+	notice.on("click", () => void askKernelSync(latest));
+	notice.show();
+}
+
+async function syncKernelFromMenu() {
+	const latest = await fetchLatestKernelVersion();
+	if (latest === null) {
+		void dialog.showMessageBox({
+			type: "info",
+			title: "官方内核同步",
+			message: "暂时无法访问 npm 源，请稍后再试。",
+			buttons: ["确定"]
+		});
+		return;
+	}
+	const bundled = bundledKernelVersion() ?? "?";
+	if (!semverGt(latest, bundled === "?" ? "0" : bundled)) {
+		void dialog.showMessageBox({
+			type: "info",
+			title: "官方内核同步",
+			message: `当前已是最新官方内核：${bundled}（npm：${latest}），无需同步。`,
+			buttons: ["确定"]
+		});
+		return;
+	}
+	await askKernelSync(latest);
+}
+
+async function askKernelSync(latest) {
+	const { response } = await dialog.showMessageBox({
+		type: "question",
+		title: "同步官方内核",
+		message: `官方内核 ${latest} 已发布（当前内置 ${bundledKernelVersion() ?? "?"}）。\n\n是否现在同步内核并发布新版安装包？\n发布后应用会自动更新到新版本。`,
+		buttons: ["现在同步发布…", "稍后再说"],
+		defaultId: 0,
+		cancelId: 1
+	});
+	if (response === 0) runKernelSync(latest);
+}
+
+function runKernelSync(latest) {
+	if (kernelSyncInProgress) {
+		notify("DSH Studio", "上一轮同步发布仍在进行中，请稍候。");
+		return;
+	}
+	let root = kernelRepoRoots()[0];
+	if (root === undefined) {
+		void (async () => {
+			const chosen = await dialog.showOpenDirectory({
+				title: "未找到 dsh-desktop 仓库。请选择 dsh-desktop 源码目录（含 scripts\\sync-kernel-release.mjs）"
+			});
+			if (chosen.canceled || chosen.filePaths.length === 0) return;
+			saveSettings({ releaseProject: chosen.filePaths[0] });
+			runKernelSync(latest);
+		})();
+		return;
+	}
+	kernelSyncInProgress = true;
+	const script = join(root, "scripts/sync-kernel-release.mjs");
+	log(`kernel sync start: node ${script} ${latest} (cwd ${root})`);
+	notify("DSH Studio", "已开始同步官方内核并发布新版…完成后会通知你。");
+	let output = "";
+	let child;
+	try {
+		child = spawn("node", [script, latest], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+	} catch (error) {
+		kernelSyncInProgress = false;
+		log(`kernel sync spawn failed: ${String(error?.message ?? error)}`);
+		notify("DSH Studio", "启动同步失败（找不到 node？）。请使用仓库里的 studio-tool / 发布中心手动同步。");
+		return;
+	}
+	child.stdout?.setEncoding("utf8");
+	child.stderr?.setEncoding("utf8");
+	const eat = (chunk) => {
+		output += String(chunk);
+		for (const line of String(chunk).split(/\r?\n/u)) {
+			if (line.trim() !== "") log(`[kernel-sync] ${line}`);
+		}
+	};
+	child.stdout?.on("data", eat);
+	child.stderr?.on("data", eat);
+	child.on("error", (error) => {
+		kernelSyncInProgress = false;
+		log(`kernel sync error: ${String(error?.message ?? error)}`);
+		notify("DSH Studio", "同步发布启动失败。可到仓库用 studio-tool 手动发布。");
+	});
+	child.on("close", (code) => {
+		kernelSyncInProgress = false;
+		const done = /DONE: v([\d.]+) pushed/.exec(output);
+		if (code === 0 && done !== null) {
+			log(`kernel sync finished: v${done[1]} pushed`);
+			notify("DSH Studio", `同步完成：已发布 v${done[1]}。GitHub 正在构建安装包，稍后本应用会自动更新。`);
+		} else {
+			log(`kernel sync exited with code ${String(code)}`);
+			notify("DSH Studio", "同步发布未成功。请打开日志目录查看 [kernel-sync] 输出，或到仓库手动执行。");
+		}
+	});
+}
+
+function scheduleKernelAutoCheck() {
+	if (kernelAutoScheduled) return;
+	kernelAutoScheduled = true;
+	setTimeout(() => void checkKernelUpdate("auto"), 60000);
+}
+
 /** Application menu bar — mirrors the tray actions inside the main window. */
 function buildAppMenu() {
 	const releasesUrl = "https://github.com/well74741/dsh-desktop/releases/latest";
@@ -720,6 +900,8 @@ function buildAppMenu() {
 			submenu: [
 				{ label: "插件市场…", click: () => openPluginPanel() },
 				{ label: "发布中心…", click: () => openReleasePanel() },
+				{ label: "检查官方内核更新…", click: () => void checkKernelUpdate("manual") },
+				{ label: "同步官方内核并发布新版…", click: () => void syncKernelFromMenu() },
 				{ type: "separator" },
 				{
 					label: "在默认浏览器中打开（网页模式）",
@@ -850,6 +1032,10 @@ void (async () => {
 
 	// Auto-update only in packaged builds (setupUpdater is a no-op in dev).
 	if (!MODE_SELFCHECK) setupUpdater({ delayMs: 10000 });
+
+	// Kernel-follow: one auto-check ~1 min after startup, prompt when official
+	// dsh publishes a newer kernel than the one bundled in this build.
+	if (!MODE_SELFCHECK) scheduleKernelAutoCheck();
 })();
 
 app.on("before-quit", (event) => {
