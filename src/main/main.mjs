@@ -383,6 +383,10 @@ function createWindow(url) {
 		event.preventDefault();
 		mainWindow?.setTitle(titleWithVersion());
 	});
+	// Track in-page navigation so "open in browser" can carry the current view.
+	mainWindow.webContents.on("did-navigate-in-page", (_event, url) => {
+		if (typeof url === "string" && url.startsWith("http")) loadedUrl = url;
+	});
 
 	mainWindow.loadURL(url);
 	loadedUrl = url;
@@ -434,9 +438,7 @@ function buildTray() {
 		},
 		{
 			label: "在默认浏览器中打开（网页模式）",
-			click: () => {
-				if (readyUrl !== null) void shell.openExternal(readyUrl);
-			}
+			click: () => openWebInBrowser()
 		},
 		{
 			label: "插件市场…",
@@ -568,12 +570,21 @@ function applyLoginItem(open, startHidden) {
 
 function focusMain() {
 	if (isWebLike()) {
-		if (readyUrl !== null) void shell.openExternal(readyUrl);
+		openWebInBrowser();
 		return;
 	}
 	if (mainWindow === null && readyUrl !== null) createWindow(readyUrl);
 	mainWindow?.show();
 	mainWindow?.focus();
+}
+
+/** Open the web UI in the default browser, keeping the window's current view
+ * (incl. any session route the UI encodes) when available. */
+function openWebInBrowser() {
+	const target = loadedUrl ?? readyUrl;
+	if (target === null) return;
+	log(`opening web UI in browser: ${target}`);
+	void shell.openExternal(target);
 }
 
 /** Handle a dsh:// deep link (second-instance argv or first-instance startup). */
@@ -582,7 +593,7 @@ function handleDeepLink(argv) {
 	if (target === undefined) return false;
 	log(`deep link received: ${target}`);
 	if (/\/web(?:$|[?#])/iu.test(target) || isWebLike()) {
-		if (readyUrl !== null) void shell.openExternal(readyUrl);
+		openWebInBrowser();
 	} else {
 		focusMain();
 	}
@@ -617,9 +628,7 @@ function buildAppMenu() {
 				{
 					label: "在默认浏览器中打开（网页模式）",
 					enabled: () => readyUrl !== null,
-					click: () => {
-						if (readyUrl !== null) void shell.openExternal(readyUrl);
-					}
+					click: () => openWebInBrowser()
 				},
 				{ type: "separator" },
 				{ label: "检查更新…", click: () => void checkNow() },
