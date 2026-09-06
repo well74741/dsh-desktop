@@ -1,0 +1,74 @@
+# Kernel-watch: automatic "official dsh updated → new DSH Studio release".
+#
+# Runs daily (plus manual dispatch). When the official @deepseek-ai/dsh kernel
+# publishes a newer version than the one pinned in this repo, scripts/
+# sync-kernel-release.mjs re-pins the kernel, bumps the app patch version and
+# pushes main + a vX.Y.Z tag (GITHUB_TOKEN pushes do NOT trigger other
+# workflows, so this same job then builds & publishes the installer itself).
+# The desktop app's normal auto-update then prompts the user to upgrade.
+#
+# When there is nothing newer, the sync script writes no marker and the build
+# steps are skipped — the run costs ~seconds.
+name: kernel-watch
+
+on:
+  schedule:
+    # Daily 03:17 UTC (≈ 11:17 Beijing). Adjust freely.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout (full history for tag detection)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure git identity
+        shell: bash
+        run: |
+          git config user.name "dsh-kernel-bot"
+          git config user.email "well74741@users.noreply.github.com"
+
+      # Syncs deps + bumps + pushes a tag when the official kernel is newer;
+      # writes .kernel-sync-version only when a release was actually created.
+      - name: Sync kernel if newer
+        shell: bash
+        run: node scripts/sync-kernel-release.mjs
+
+      - name: Build NSIS installer
+        if: hashFiles('.kernel-sync-version') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Publish single Release
+        if: hashFiles('.kernel-sync-version') != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(cat .kernel-sync-version)"
+          gh release delete "${TAG}" --yes || true
+          gh release create "${TAG}" \
+            release/DSH-Studio-*.exe \
+            release/DSH-Studio-*.exe.blockmap \
+            release/latest.yml \
+            --title "${TAG}" \
+            --notes "DSH Studio ${TAG}（官方内核自动同步）"
+
+      - name: Show artifacts
+        if: hashFiles('.kernel-sync-version') != ''
+        run: Get-ChildItem release -File | Select-Object Name, Length

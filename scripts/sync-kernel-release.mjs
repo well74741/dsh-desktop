@@ -29,6 +29,12 @@ function run(args, opts = {}) {
 	execFileSync(args[0], args.slice(1), { stdio: "inherit", cwd: ROOT, ...opts });
 }
 
+const MARKER = `${ROOT}.kernel-sync-version`;
+
+function clearMarker() {
+	try { writeFileSync(MARKER, ""); } catch { /* ignore */ }
+}
+
 async function latestDshVersion() {
 	for (const base of REGISTRIES) {
 		try {
@@ -56,6 +62,7 @@ async function main() {
 
 	if (pinned === target) {
 		console.log("already latest — nothing to do");
+		clearMarker();
 		return;
 	}
 
@@ -123,6 +130,7 @@ async function main() {
 	};
 	push(["main"]);
 	push([`v${out}`]);
+	writeFileSync(MARKER, `${out}\n`, "utf8");
 	console.log(`\nDONE: v${out} pushed — GitHub Actions is building & publishing the installer.`);
 }
 
