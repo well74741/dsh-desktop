@@ -412,17 +412,13 @@ function createWindow(url) {
 	installReferenceButtonInjector();
 }
 
-// -- Experimental: desktop-shell UI helpers over the official web UI ---------
-// 1) A small "引用文件 @" button sits next to the composer's "+" (commands)
-//    button; clicking it types "@" so the official file/session picker opens.
-// 2) Right-clicking a session row in the left history tree offers "引用此对话",
-//    which inserts the canonical session mention @[title](dsh-session://…).
-// Both are shell-only; the kernel is never touched. If the official UI changes
-// shape, the helpers degrade gracefully (button hidden / context menu inert).
+// -- Experimental: desktop-shell UI helper over the official web UI ----------
+// A small "引用文件 @" button sits next to the composer's "+" (commands)
+// button; clicking it types "@" so the official file/session picker opens.
+// Shell-only; the kernel is never touched. If the official UI changes shape,
+// the button is hidden and the user can still type "@" by hand.
 const REF_BTN_SCRIPT = `(() => {
 	const REF_ID = "__dsh_studio_ref_btn";
-	const MENU_ID = "__dsh_studio_ctx_menu";
-	const BS = String.fromCharCode(92); // backslash, avoids template escapes
 
 	function pickEditable() {
 		const visible = (el) => {
@@ -487,119 +483,6 @@ const REF_BTN_SCRIPT = `(() => {
 	}
 	btn.style.display = plus === null ? 'none' : 'inline-flex';
 
-	// (2) Right-click on a session-tree row → 引用此对话.
-	function sessionRowData(el) {
-		for (let cur = el; cur !== null && cur !== document.body; cur = cur.parentElement) {
-			const key = Object.keys(cur).find((k) => k.startsWith('__reactFiber$'));
-			if (key === undefined) continue;
-			let fiber = cur[key];
-			while (fiber !== null) {
-				const props = fiber.memoizedProps;
-				if (props !== null && typeof props === 'object' && props.node !== undefined && props.node !== null &&
-					typeof props.node.id === 'string' && props.node.id.indexOf('session-') === 0 &&
-					typeof props.onOpen === 'function') {
-					const node = props.node;
-					if (node.blank === true) return null;
-					return {
-						id: node.id,
-						title: typeof node.title === 'string' && node.title !== '' ? node.title : node.id,
-						current: cur.hasAttribute && cur.hasAttribute('aria-selected') && cur.getAttribute('aria-selected') === 'true'
-					};
-				}
-				fiber = fiber.return;
-			}
-		}
-		return null;
-	}
-
-	function toBase64UrlUtf8(str) {
-		let bin = '';
-		for (const b of new TextEncoder().encode(str)) bin += String.fromCharCode(b);
-		let out = btoa(bin).split('+').join('-').split('/').join('_');
-		const pad = out.indexOf('=');
-		return pad === -1 ? out : out.slice(0, pad);
-	}
-	function buildMention(id, label) {
-		const escaped = label.split(BS).join(BS + BS).split(']').join(BS + ']');
-		return '@[' + escaped + '](dsh-session:' + toBase64UrlUtf8(JSON.stringify(id)) + ')';
-	}
-
-	let menu = document.getElementById(MENU_ID);
-	if (menu === null) {
-		menu = document.createElement('div');
-		menu.id = MENU_ID;
-		menu.style.cssText =
-			'position:fixed;z-index:2147483001;display:none;min-width:220px;max-width:360px;' +
-			'background:var(--dsw-specific-input-major,#22262e);' +
-			'border:1px solid var(--dsw-alias-border-l3,#3a4150);border-radius:12px;' +
-			'box-shadow:0 8px 28px rgba(0,0,0,0.4);padding:6px;' +
-			'font-family:system-ui,"Segoe UI","Microsoft YaHei",sans-serif;';
-		const label = document.createElement('div');
-		label.id = MENU_ID + '_label';
-		label.style.cssText =
-			'padding:4px 10px 8px;font-size:12px;color:var(--dsw-alias-label-tertiary,#8b93a3);' +
-			'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-		const act = document.createElement('button');
-		act.type = 'button';
-		act.id = MENU_ID + '_act';
-		act.textContent = '引用此对话（把它的记录与进度带入当前输入框）';
-		act.style.cssText =
-			'display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;text-align:left;' +
-			'padding:8px 10px;border:0;border-radius:8px;background:transparent;' +
-			'color:var(--dsw-alias-label-primary,#dfe5ee);font-size:13px;line-height:20px;cursor:pointer;';
-		act.addEventListener('mouseenter', () => {
-			act.style.background = 'var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.07))';
-		});
-		act.addEventListener('mouseleave', () => { act.style.background = 'transparent'; });
-		act.addEventListener('click', () => {
-			const id = menu.dataset.sessionId;
-			const title = menu.dataset.sessionTitle;
-			hideMenu();
-			if (typeof id !== 'string' || id === '' || typeof title !== 'string') return;
-			insertAtComposerEnd(buildMention(id, title));
-		});
-		menu.appendChild(label);
-		menu.appendChild(act);
-		menu.addEventListener('mousedown', (e) => e.stopPropagation());
-		document.body.appendChild(menu);
-	}
-	const menuLabel = document.getElementById(MENU_ID + '_label');
-	const menuAct = document.getElementById(MENU_ID + '_act');
-	function hideMenu() { menu.style.display = 'none'; }
-	function placeMenu(x, y) {
-		menu.style.display = 'block';
-		const rect = menu.getBoundingClientRect();
-		const px = Math.min(x, Math.max(8, window.innerWidth - rect.width - 8));
-		const py = Math.min(y, Math.max(8, window.innerHeight - rect.height - 8));
-		menu.style.left = px + 'px';
-		menu.style.top = py + 'px';
-	}
-	if (document.__dshCtxBound !== true) {
-		document.__dshCtxBound = true;
-		document.addEventListener('contextmenu', (ev) => {
-			if (!(ev.target instanceof Element)) return;
-			const rowEl = ev.target.closest('[role="treeitem"]');
-			if (rowEl === null) return;
-			const data = sessionRowData(rowEl);
-			if (data === null) return;
-			ev.preventDefault();
-			ev.stopPropagation();
-			menu.dataset.sessionId = data.id;
-			menu.dataset.sessionTitle = data.title;
-			menu.dataset.current = String(data.current);
-			menuLabel.textContent = data.title;
-			menuAct.disabled = data.current;
-			menuAct.style.opacity = data.current ? '0.45' : '1';
-			placeMenu(ev.clientX, ev.clientY);
-		}, true);
-		document.addEventListener('mousedown', (ev) => {
-			if (ev.target !== null && menu.contains(ev.target)) return;
-			hideMenu();
-		}, true);
-		document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hideMenu(); }, true);
-		window.addEventListener('blur', hideMenu);
-		window.addEventListener('resize', hideMenu);
-	}
 })()`;
 
 let refBtnTimer = null;
