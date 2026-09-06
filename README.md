@@ -1,97 +1,68 @@
-# DSH Studio（桌面版，P0）
+# DSH Studio（桌面版）
 
-把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）做成 Windows 桌面应用。**内核与官方 `dsh web` 完全同源**：同一份 `@deepseek-ai/dsh` 依赖、同一套官方前端 dist、同一 `DSH_HOME`——网页版与桌面版天然同步。
+把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）打包成 **Windows 桌面应用**（Electron 壳 + 官方内核，当前版本 **0.1.19**）。
 
-## 架构（为什么这样设计）
+**核心原则：内核与官方 `dsh web` 完全同源。** 桌面版只负责"外壳体验"，不修改、不注入任何内核语义：同一份 `@deepseek-ai/dsh` 依赖、同一套官方前端、同一个 `DSH_HOME`——桌面版与网页版的数据/插件/会话天然同步。
+
+## 主要功能
+
+- **窗口 + 托盘常驻**：关窗不退出（驻留托盘继续运行内核）；托盘可开主窗口、切网页保底、退出。
+- **网页版保底**：内核异常或不想用窗口时，可在默认浏览器打开**同一 live 内核**（同数据）；`--web` 模式等价于官方 `dsh web`。
+- **开机自启**（可选"隐藏到托盘启动"，下次登录生效，`userData/settings.json` 持久化）。
+- **自动更新**：打包版启动后自动检查 GitHub Releases 并下载安装（托盘/菜单也有"检查更新"）；国内网络走**镜像兜底**（ghfast.top 等）；更新源绑定本仓库 Releases。
+- **诊断日志**：打包版全部日志（含内核 stderr）写入 `%APPDATA%\DSH Studio\logs\dsh-studio.log`；内核异常退出弹窗附最近日志并支持"重试 / 网页保底"。
+- **插件市场（可视化面板）**：搜索 npm、标注是否真 dsh 插件（`dsh.bundle`）、安装前 peer 兼容分析、一键安装/卸载、**重启内核即生效**；插件安装在 `$DSH_HOME/profiles/web`（与 `dsh web` 共用）。
+- **发布中心（面板）**：多项目支持——选任意 git 仓库，看远程/构建状态/最新版本，打开 GitHub Actions 页面，无需命令行。
+- **引用文件快捷按钮**：主窗口输入框"+"旁有「引用文件 @」，点击自动输入 `@` 打开官方文件/对话选择器（可精确引用工作区文件，`@` 后可用 Tab 快速选择）。
+- **官方内核跟随**：启动约 1 分钟后自动检查 npm 官方 `@deepseek-ai/dsh`（官方源+国内镜像）；发现新版会通知——确认后自动同步内置内核、升版本、发布新版并让应用自动更新（全程无需命令行）。
+- **`dsh://` 深链与 Windows 通知身份**（打包版注册，为后续预留）。
+
+## 架构
 
 ```
-Electron Main（桌面壳）
- ├─ 单实例锁 / 窗口 / 托盘 / 退出生命周期
+Electron Main（桌面壳，src/main/）
+ ├─ 单实例锁 / 窗口 / 托盘 / 菜单 / 自动更新 / 内核巡检
  └─ spawn 内核子进程：process.execPath + ELECTRON_RUN_AS_NODE=1
-       （同一 electron.exe 充当纯 Node 运行时 → worker_threads、
-         spawn(process.execPath)、koffi FFI 等 Node 语义全部保持，
-         这在内核跑在 Electron 主进程里时会坏掉）
-     └─ runProfile("web") —— 官方 profile boot（dsh-base + dsh-web-app）
-          ├─ webServer @ 127.0.0.1:<OS 分配端口>
-          ├─ 伺服官方前端 dist + __DSH_BOOT__ 注入
-          └─ DSH_HOME = $DSH_HOME 或官方默认 ~/.dsh（与 dsh web 共用数据）
+      （同一 electron.exe 充当纯 Node 运行时，Node 语义完整保留）
+      └─ runProfile("web") —— 官方 profile boot（src/core/run.mjs）
+           ├─ webServer @ 127.0.0.1:<OS 分配端口>（loopback）
+           ├─ 伺服官方前端 + __DSH_BOOT__ 注入
+           └─ DSH_HOME = $DSH_HOME 或官方默认 ~/.dsh
 ```
 
-**网页版保底与同步**：
-- 桌面窗口就是网页 UI（同一内核实例）；托盘“在默认浏览器中打开”直接打开同一 live URL（同会话、同数据）。
-- `DSH_HOME` 与 CLI 一致 → 会话/设置/凭据/已装插件磁盘级共享。
-- 独立保底：官方 `dsh web` 不受任何影响；桌面版另提供 `--web` 模式（不开窗口，等价于 `dsh web`）。
+要点：
+- **asar 关闭**：plain-Node 内核子进程读不了 asar，应用文件直接放 `resources/app`（代价：安装包约 143 MB）。
+- **npmRebuild 关闭**：原生依赖走 N-API 预编译平台包，无需 node-gyp 工具链。
+- 打包内置内核基线见 `core/versions.json`（`npm run snapshot:core` 生成）。
 
-## 目录
+## 安装与更新
 
-```
-src/
-  core/run.mjs      内核入口：boot 官方 web profile（可被纯 Node 直接跑）
-  main/main.mjs     Electron 主进程（壳）
-  preload/preload.cjs   context-isolated 桥（当前最小）
-scripts/make-icon.mjs   无依赖 PNG 图标生成
-```
+- 下载：<https://github.com/well74741/dsh-desktop/releases>（`DSH-Studio-x.y.z-setup.exe`）。
+- 安装后：应用内菜单/托盘 **检查更新** 自动下载新版本并重启安装；也可打开下载页手动装。
+- 更新源与本仓库 Releases 绑定；无需任何 GitHub 账号即可使用与更新。
 
-## 常用命令
+## 常用命令（开发）
 
 | 命令 | 作用 |
 |---|---|
-| `npm run smoke` | 纯 Node 跑通内核 boot（临时/当前 DSH_HOME），打印 ready 后退出 |
 | `npm start` | 桌面模式（窗口 + 托盘） |
-| `npm run start:web` | 网页保底模式：不开窗口，默认浏览器打开同一内核 |
-| `npm run start:plugins` | 桌面模式并自动打开"插件市场"面板 |
+| `npm run start:web` | 网页保底模式（不开窗口，默认浏览器打开同一内核） |
+| `npm run start:plugins` | 桌面模式并自动打开"插件市场" |
 | `npm run selfcheck` | 无头验证 Electron-as-Node 派生内核链路 |
-| `npm run test:plugins` | 插件安装→内核激活→卸载 端到端测试（隔离 DSH_HOME） |
-| `npm run pack` | 构建未打包目录（release/win-unpacked） |
-| `npm run dist` | 构建 NSIS 安装器（release/ 下 setup.exe + latest.yml，不发布） |
-| `npm run dist:publish` | 构建并发布到 GitHub Releases（需先填仓库并配 GH_TOKEN） |
+| `npm run test:plugins` | 插件安装→激活→卸载 端到端测试（隔离 DSH_HOME） |
+| `npm run dist` | 本地构建 NSIS 安装器（不发布） |
+| `npm run snapshot:core` | 固化内置内核版本基线到 `core/versions.json` |
+| `node scripts/sync-kernel-release.mjs` | 同步官方内核到最新并发布新版（内核跟随用） |
 
-> smoke/selfcheck 如需隔离家目录：设 `DSH_HOME` 指向临时目录再运行，避免动到真实 `~/.dsh`。
+## 发布流程
 
-## P1：打包与自动更新（已落地）
+- **网页一键**：仓库 Actions → `release` → Run workflow → 选 patch/minor/major（任务自动升版本、提交、打标签、构建并发布）。
+- **Tag 直发**：`git push origin vX.Y.Z` 自动构建发布（内置 `GITHUB_TOKEN`，无需 PAT）。
+- 发布步骤会先删除该 tag 的旧 Release 行，再一次性上传完整文件（`setup.exe + latest.yml + .blockmap`），避免自动更新读到残缺发布。
 
-- electron-builder 26 + electron-updater 6，配置见 `electron-builder.yml`。
-- **asar 关闭**：内核以 plain-Node 子进程（ELECTRON_RUN_AS_NODE）启动，读不了 asar 内的文件，故应用文件直接放 `resources/app`（代价：包体较大，约 147 MB；后续可改"asar + 内核目录外置"优化）。
-- **npmRebuild 关闭**：内核原生依赖走 N-API 预编译平台包，无需 node-gyp 工具链。
-- 自动更新：仅打包版启用 → 启动 10 s 后检查 GitHub Releases → 有新版本自动下载 → 弹窗确认后重启安装；托盘有"检查更新…"。退出/关窗逻辑已与 updater 的 quitAndInstall 协调。
-- **诊断日志**：打包版所有日志（含内核 stderr）镜像写入 `%APPDATA%\DSH Studio\logs\dsh-studio.log`；内核异常退出时弹窗会附最近日志并给"重试"（自动重试一次后强制退出）。
-- 已验证：`win-unpacked` 与**安装版** `--selfcheck` 均通过（内核 boot→ready→退出 0）；静默安装/卸载退出码 0；真实 `~/.dsh` 启动（含与官方 `dsh web` 并存）正常；`latest.yml`、`app-update.yml`、`.blockmap` 均生成。
+## 已知边界
 
-## P2-MVP：插件市场（可视化，已落地）
-
-- **入口**：托盘 → "插件市场…"，或 `npm run start:plugins`。
-- **面板**（独立窗口，`src/panel/`，与官方 UI 同风格深色）：
-  - 已安装：列出 profile 依赖，区分 **bundle 层**（dsh 插件）/普通依赖，显示 `bundles` 层顺序与路径；
-  - 插件市场：npm 搜索（`src/core/registry.mjs`），逐项标注 **"dsh 插件（bundle）"** 或 **"普通包"**，一键安装/卸载；
-  - "重启内核以生效"：内核热重启并把主窗口重载到新 URL。
-- **引擎**（`src/core/pluginctl.mjs`）：与官方 `dsh plugin` 同语义 —— profile 缺失时按模板初始化 → **内置 pnpm**（以本 exe `ELECTRON_RUN_AS_NODE` 运行，用户机器无需装 Node/pnpm）在 profile 目录执行 add/remove → 按 `dsh.bundle` 声明 reconcile `bundles` 层。
-- **网页版同步**：插件安装在 `$DSH_HOME/profiles/web`（与 `dsh web` 共用同一目录）→ 双方下次启动自动可见；同一运行实例内可用托盘"在默认浏览器中打开"看同一 live 内核。
-- **验证**：`npm run test:plugins` 全绿（安装 file 测试 bundle → 依赖+bundles 层写入 → 内核重启日志出现 `[test-bundle] active` → 卸载 → 再启动干净）。
-- 备注：当前官方/社区可直接安装的 dsh bundle 还很少（npm 上已有 `dsh-plugin` 社区市场索引可搜）；普通 npm 包可装但不进 bundles 层（面板会标注）。
-
-## 发布（GitHub：https://github.com/well74741/dsh-desktop）
-
-**网页一键发布（推荐，纯 UI）**：仓库 **Actions → release → Run workflow → 选 patch/minor/major**。网页任务会自动：升级版本号 → 提交 → 打标签 `vX.Y.Z` → 推送 → 触发构建并把安装包发布到 Releases。本地只需先用 GitHub Desktop 推代码。
-
-**本地双击**：`release.bat`（输版本号 → 自动 bump/提交/打标签/推送）。
-
-**Tag 直发**：`git push origin vX.Y.Z` 也会自动构建发布。无需任何 PAT/Secret（用内置 `GITHUB_TOKEN`）。
-
-> Windows 代码签名证书暂缺（未签名，SmartScreen 会提示）；获取证书后可加 `win.signingHashAlgorithms`/证书配置或在 Actions 注入 CSC 环境变量。
-
-### 已知边界（P0 + P1）
-
-- 已验证环境：Electron 44.2.0（内置 Node 24.20）+ @deepseek-ai/dsh 0.1.2-rc.1；内核要求 Node ≥ 22.7（zstd、TS strip API）。
-- `--dir` 构建不生成 `app-update.yml`（NSIS/发布构建才会）；electron-updater 在 dev（未打包）下自动禁用。
-- 端口为 OS 分配（loopback only）；内核日志里的 `dsh web:` 行是官方 printUrl 输出，无碍。
-- 单实例：重复启动会聚焦已有窗口/托盘实例。
-- 建议不要与 `dsh web` 同时常驻写同一 `DSH_HOME`；同步用托盘"在默认浏览器中打开"（同一 live 内核）即可。
-- 占位图标由 `scripts/make-icon.mjs` 生成（icon.png/icon-256.png/icon.ico），后续替换正式品牌图。
-- 插件市场（P2-MVP）边界：安装/卸载走 pnpm（需网络与 npm registry）；装完需"重启内核"生效；面板标注的 "bundle/普通包" 依据 latest manifest 的 `dsh.bundle`；生态尚小，多数官方能力已内置于官方 bundles。
-- **打包依赖经验（0.1.3 修复）**：上游多个 `@deepseek-ai/*` 把运行库声明为 **peerDependency**（npm 开发树会自动装、但 electron-builder 不打 peer）。0.1.2 及更早在真实装机时主进程报 `ERR_MODULE_NOT_FOUND: '@deepseek-ai/cordis-plugin-group'`。已把 peer 缺失包补为根正式依赖。**注意**：在 `release/`（工程目录内）自检会因 Node 向上解析命中开发树 `node_modules` 而假通过；装机级验证必须在工程目录之外进行（本次在 `Deepseek_projects\verify-dsh` 验证通过）。
-- **桌面版自知与网页保底**：内核与官方 `dsh web` 逐字节同源，**不注入**"桌面版"语义（开发/提示词零差异）；仅外壳层自知。内核子进程会收到 `DSH_STUDIO_RUNTIME=desktop|web` 环境标记，供将来 host 插件使用。若桌面窗口化链路异常：错误框可点 **"网页模式保底运行"**（同内核、默认浏览器打开、无窗口），连续两次失败会自动进入该兜底；也可直接 `npm run start:web` 或托盘"在默认浏览器中打开"。
-- **P2 完整体：兼容门禁（联网能力继承）**：安装/搜索仍走 npm registry（联网能力未受限）；安装前对 registry 包做 **peer 兼容分析**（`src/core/compat.mjs`，对照本应用随附的整个 `@deepseek-ai` scope 版本：cordis 主版本不匹配标 danger，其余 warn）并弹窗提示，可继续或取消。开发便利：设 `DSH_STUDIO_ALLOW_MULTI=1` 可跳过单实例锁（仅供自检/CI）。
-- **P2 完整体：面板第二弹**：面板元信息显示内核基线（dsh/cordis 版本、随附 @deepseek-ai 包数）；已装项支持逐个"检查"兼容；安装同名已装包会二次确认；`core/versions.json`（`npm run snapshot:core` 生成）固化内核依赖基线，供内核跟随检查与文档使用。
-- **P3 桌面体验（第一批）**：托盘菜单显示运行模式（desktop/web 保底状态），新增 **"开机自启"** 开关（`app.setLoginItemSettings`）；打包版注册 `dsh://` 协议与 Windows AppUserModelId（通知/任务栏身份，`dsh://` 深链为后续预留）。
-- **P3 桌面体验（第二批·0.1.6）**：系统通知——首次"关窗驻留托盘"提示（可点通知恢复窗口）、内核重启（插件/变更生效，窗口隐藏时）与网页保底就绪时通知；托盘即后台常驻会话（关窗不退出、核心继续）。
-- **P3 桌面体验（第三批）**：`--hidden` 纯净启动（无主窗口、仅托盘，供开机自启"隐藏到托盘"）；托盘"开机自启"+"自启时隐藏到托盘（下次登录生效）"双开关（`userData/settings.json` 持久化，登录项带 `--hidden` 参数）；`dsh://` 深链处理（二次实例 argv 或首启命令行；`dsh://studio/web` 走浏览器，其余聚焦主窗口）。打包程序为 GUI 子系统：**不产生/不占用控制台窗口，双击即开**。
+- **未签名**：Windows 代码签名证书暂缺，SmartScreen 可能提示"未知发布者"（属正常，点"仍要运行"）。
+- 建议不要与官方 `dsh web` 同时常驻写同一 `DSH_HOME`；跨窗口同步用托盘"在默认浏览器中打开"（同一 live 内核）。
+- 开发模式（未打包）下自动更新自动禁用；updater 诊断日志照常。
+- 桌面版从 0.1.3 起已把上游 peerDependencies 补齐为根依赖，装机级验证须在工程目录外进行（Node 会向上解析开发树导致假通过）。
