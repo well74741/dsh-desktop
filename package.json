@@ -2,7 +2,7 @@
   "name": "dsh-studio",
   "productName": "DSH Studio",
   "description": "DSH Studio — desktop shell for the DeepSeek Harness (dsh). Embeds the official dsh web-profile core as a Node-semantics child of the Electron binary and loads the official web UI, keeping the browser/web mode as a fallback on the same kernel and DSH_HOME.",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "private": true,
   "type": "module",
   "main": "./src/main/main.mjs",
