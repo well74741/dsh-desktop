@@ -87,12 +87,15 @@ jobs:
 
       # Publish exactly one Release row holding setup.exe + .blockmap +
       # latest.yml together. Leftover rows for the tag are removed first.
+      # Version comes from package.json so BOTH tag pushes and manual
+      # workflow_dispatch runs tag the release correctly (dispatch runs are on
+      # branch "main", not on the version tag).
       - name: Publish single Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="v$(node -p "require('./package.json').version")"
           gh release delete "${TAG}" --yes || true
           gh release create "${TAG}" \
             release/DSH-Studio-*.exe \
