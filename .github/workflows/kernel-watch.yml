@@ -47,6 +47,11 @@ jobs:
         shell: bash
         run: node scripts/sync-kernel-release.mjs
 
+      # Deterministic install from the (possibly kernel-updated) lockfile.
+      - name: Install dependencies
+        if: hashFiles('.kernel-sync-version') != ''
+        run: npm ci
+
       - name: Build NSIS installer
         if: hashFiles('.kernel-sync-version') != ''
         env:

@@ -14,7 +14,7 @@
  *      auto-updates).
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -32,7 +32,7 @@ function run(args, opts = {}) {
 const MARKER = `${ROOT}.kernel-sync-version`;
 
 function clearMarker() {
-	try { writeFileSync(MARKER, ""); } catch { /* ignore */ }
+	try { rmSync(MARKER, { force: true }); } catch { /* ignore */ }
 }
 
 async function latestDshVersion() {
