@@ -68,8 +68,10 @@ jobs:
           git commit -m "chore: release v${NEW_VERSION}"
           git tag "v${NEW_VERSION}"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin main
-          git push origin "v${NEW_VERSION}"
+          # Explicit refspecs: a stray tag named "main" (legacy mislabeled
+          # release) made "git push origin main" ambiguous. Push by full ref.
+          git push origin "HEAD:refs/heads/main"
+          git push origin "refs/tags/v${NEW_VERSION}"
 
       - name: Install dependencies
         run: npm ci
