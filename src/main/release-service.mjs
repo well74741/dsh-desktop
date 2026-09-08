@@ -294,6 +294,12 @@ export function registerReleaseIpc() {
 		return { ok: true };
 	});
 
+	// 换账号 = 改 Windows 系统凭据里的 github.com 条目（应用不保存任何账号）。
+	ipcMain.handle("release:open-cred", async () => {
+		spawn("cmd", ["/c", "start", "", "control", "/name", "Microsoft.CredentialManager"], { windowsHide: true });
+		return { ok: true };
+	});
+
 	// 构建状态：读取 release 工作流的徽章（公开仓库免登录）。
 	ipcMain.handle("release:status", async () => {
 		const badge = "https://github.com/well74741/dsh-desktop/actions/workflows/release.yml/badge.svg";

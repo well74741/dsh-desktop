@@ -50,6 +50,7 @@
   <button id="btn-pull">拉取远端</button>
   <button id="btn-actions">打开 Actions</button>
   <button id="btn-status">构建状态</button>
+  <button id="btn-cred" title="切换/修改推送用的 GitHub 账号（Windows 系统凭据）">凭据/账号…</button>
   <button id="btn-choose">选择项目…</button>
   <button id="btn-refresh">刷新</button>
 </div>
@@ -178,6 +179,7 @@
   $("btn-pull").addEventListener("click", pullRemote);
   $("btn-actions").addEventListener("click", () => api.invoke("release:open-actions"));
   $("btn-status").addEventListener("click", () => refreshStatus());
+  $("btn-cred").addEventListener("click", () => api.invoke("release:open-cred"));
   $("btn-choose").addEventListener("click", chooseProject);
   $("btn-refresh").addEventListener("click", refresh);
   refresh();
