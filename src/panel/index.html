@@ -96,7 +96,11 @@
   let lastResults = [];
   function updateHotUi() {
     const h = $("btn-hot");
-    if (h) h.classList.toggle("primary", market.query === "");
+    if (!h) return;
+    const active = market.query === "";
+    h.classList.toggle("primary", active);
+    h.textContent = active ? "热门 ✓" : "热门";
+    h.title = active ? "当前正在显示热门插件；搜索后会自动退出" : "点击回到热门插件";
   }
 
   /** IPC 包装：25 秒超时兜底，永不“无限读取中”。 */
@@ -174,7 +178,10 @@
     updateHotUi();
     const onlyPart = only ? "只看 dsh 插件" : (market.query === "" ? "热门" : `“${esc(market.query)}”`);
     const sortHint = only ? " · 按 ⭐ 星数排序" : (market.query === "" ? "（按相关度/热度）" : "");
-    $("market-count").textContent = `${onlyPart} · ${market.total} 个${sortHint}`;
+    let allShown = "";
+    if (only && (res.exhausted || market.total <= market.per)) allShown = "（已全部显示）";
+    if (only && market.total > 1) allShown += "（同仓库多包星数会重复）";
+    $("market-count").textContent = `${onlyPart} · ${market.total} 个${sortHint}${allShown}`;
     renderMarket();
     renderPager();
   }
