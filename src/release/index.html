@@ -151,6 +151,13 @@
         </div>`);
     }
 
+    // 启动默认停靠的是开发仓库（dsh-desktop），已在 GitHub 上 → 直接显示 3~5 步属正常；
+    // 加提示条让新手知道该去“选择项目…”找自己的新项目（会从第 1 步开始）。
+    if (r.chosen && r.defaultProject) {
+      const projName = esc((r.root || "").split(/[\\/]/).pop());
+      html = card(`<div class="warn">当前显示的是默认开发仓库（${projName}）。它已经在 GitHub 上，所以直接显示第 3~5 步。
+        如果你想上传<b>自己的新项目</b>：点上方「📂 选择项目…」选一个新文件夹，向导会从<b>第 1 步</b>带你走。</div>`) + html;
+    }
     html += `<details class="advanced"><summary>高级（开发维护用）</summary>
       <div class="advrow">
         <button id="btn-net">网络检查</button>

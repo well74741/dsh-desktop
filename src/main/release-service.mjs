@@ -7,7 +7,7 @@
 import { app, dialog, ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { loadSettings, saveSettings } from "./settings.mjs";
 
 let repoRoot = null;
@@ -18,10 +18,18 @@ export function configureReleaseService({ getWindows, gitRepoRoot, execPath }) {
 	// Prefer the last project the user chose (persisted); fall back to the
 	// repo this app was started from when that path is a real git checkout.
 	const saved = loadSettings().releaseProject;
-	if (typeof saved === "string" && existsSync(join(saved, ".git"))) repoRoot = saved;
-	else if (gitRepoRoot && existsSync(join(gitRepoRoot, ".git"))) repoRoot = gitRepoRoot;
+	if (typeof saved === "string" && existsSync(join(saved, ".git"))) {
+		repoRoot = saved;
+		explicitProject = true;
+	} else if (gitRepoRoot && existsSync(join(gitRepoRoot, ".git"))) {
+		repoRoot = gitRepoRoot;
+		explicitProject = false;
+	}
 	if (execPath) execNode = execPath;
 }
+
+// 该项目是用户主动选的（true）还是启动时默认带上的开发仓库（false）。
+let explicitProject = false;
 
 let execNode = process.execPath;
 
@@ -137,10 +145,10 @@ async function collect(executable, args, env = process.env) {
 
 async function info() {
 	const chosen = repoRoot !== null;
-	if (!chosen) return { ok: true, available: false, chosen: false, root: null, reason: "还没有选择项目目录。" };
+	if (!chosen) return { ok: true, available: false, chosen: false, defaultProject: false, root: null, reason: "还没有选择项目目录。" };
 	if (!gitAvailable()) {
 		return {
-			ok: true, available: false, chosen: true, hasGit: false, root: repoRoot,
+			ok: true, available: false, chosen: true, defaultProject: !explicitProject, hasGit: false, root: repoRoot,
 			reason: "该目录还不是 git 仓库（没有 .git）。可以用向导里的“初始化并首次提交”开始。"
 		};
 	}
@@ -153,6 +161,7 @@ async function info() {
 		ok: true,
 		available: true,
 		chosen: true,
+		defaultProject: !explicitProject,
 		hasGit: true,
 		hasRemote: rawRemote !== "",
 		root: repoRoot,
@@ -236,14 +245,20 @@ async function doPublish(kindOrVersion) {
 
 export function registerReleaseIpc() {
 	ipcMain.handle("release:choose", async () => {
-		const result = await dialog.showOpenDialog({
-			title: "选择要发布/管理的 git 项目文件夹",
+		const previous = loadSettings().releaseProject;
+		const dialogOpts = {
+			title: "选择要管理/上传的项目文件夹（可以是还没建 git 的普通文件夹）",
 			properties: ["openDirectory"]
-		});
+		};
+		// 从上次所选目录的“上一级”打开，避免每次都回到默认的“下载”。
+		if (typeof previous === "string" && previous !== "") {
+			try { dialogOpts.defaultPath = dirname(previous); } catch { /* ignore */ }
+		}
+		const result = await dialog.showOpenDialog(dialogOpts);
 		if (result.canceled || !result.filePaths?.[0]) return { ok: false, error: "未选择" };
 		const dir = result.filePaths[0];
-		if (!existsSync(join(dir, ".git"))) return { ok: false, error: "该文件夹不是 git 仓库（里面没有 .git）" };
 		repoRoot = dir;
+		explicitProject = true;
 		saveSettings({ releaseProject: dir });
 		broadcast({ kind: "line", text: `已切换项目：${dir}` });
 		return { ok: true, info: await info() };
