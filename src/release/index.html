@@ -146,7 +146,7 @@
 
   async function pullRemote() {
     if (!confirm("“拉取远端”会：把 GitHub 上的最新提交合并到本地（以远端为主），并把你本地还没推送的提交重新放到上面。\n\n它不会动你未提交的改动；若本地已有冲突会中止并提示。\n\n确定执行吗？")) return;
-    addEvent(">> 拉取远端（pull --rebase origin main）…");
+    addEvent(">> 拉取远端（pull --rebase origin 当前分支）…");
     const res = await api.invoke("release:pull");
     setStatus(res.ok ? "拉取完成" : `拉取失败：${res.error}`);
     if (res.ok) await refresh();

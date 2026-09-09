@@ -35,7 +35,19 @@ function gitAvailable() {
 	return repoRoot !== null && existsSync(join(repoRoot, ".git"));
 }
 
-const FALLBACK_ACTIONS = "https://github.com/well74741/dsh-desktop/actions";
+/** Current branch name of the selected project (generic; no hard-coded main). */
+async function headBranch() {
+	if (!gitAvailable()) return "main";
+	try {
+		const { out } = await collect("git", ["symbolic-ref", "--short", "-q", "HEAD"]);
+		const branch = (out || "").trim();
+		return branch === "" ? "main" : branch;
+	} catch {
+		return "main";
+	}
+}
+
+const FALLBACK_ACTIONS = "https://github.com";
 
 /** Derive the GitHub Actions URL of the current project's origin remote. */
 async function actionsUrl() {
@@ -86,10 +98,11 @@ function runGit(args) {
 
 /** Push branch with auto pull --rebase once when rejected (remote ahead). */
 async function pushBranch(args) {
+	const branch = args[1] ?? "main";
 	let code = await runGit(["push", ...args]);
 	if (code !== 0) {
-		broadcast({ kind: "phase", text: "远端有更新，先 pull --rebase 再推送…" });
-		await runGit(["pull", "--rebase", "origin", "main"]);
+		broadcast({ kind: "phase", text: `远端有更新，先 pull --rebase origin ${branch} 再推送…` });
+		await runGit(["pull", "--rebase", "origin", branch]);
 		code = await runGit(["push", ...args]);
 	}
 	return code;
@@ -148,7 +161,8 @@ async function doCommitPush(message) {
 	if (!message || message.trim() === "") return { ok: false, error: "请填写提交说明" };
 	if ((await runGit(["add", "-A"])) !== 0) return { ok: false, error: "git add 失败" };
 	if ((await runGit(["commit", "-m", message.trim()])) !== 0) return { ok: false, error: "git commit 失败（可能没有改动）" };
-	const code = await pushBranch(["origin", "main"]);
+	const branch = await headBranch();
+	const code = await pushBranch(["origin", branch]);
 	if (code !== 0) return { ok: false, error: "git push 失败（网络/登录问题；已含 rebase 与提示，可稍后重试）" };
 	return { ok: true };
 }
@@ -176,6 +190,9 @@ function setVersionTo(next) {
 
 async function doPublish(kindOrVersion) {
 	if (!gitAvailable()) return { ok: false, error: "非开发目录，无法发布" };
+	if (!existsSync(join(repoRoot, "package.json"))) {
+		return { ok: false, error: "该项目没有 package.json（发布按钮只适用于带版本文件的项目）。桌宠这类项目请用“提交并推送代码”传源码。" };
+	}
 	const dirty = (await collect("git", ["status", "--porcelain"])).out;
 	if (dirty !== "") return { ok: false, error: `工作区有未提交改动（${dirty.split("\n").length} 项），请先「提交并推送代码」` };
 
@@ -202,9 +219,9 @@ async function doPublish(kindOrVersion) {
 	if (tags === "") {
 		if ((await runGit(["tag", `v${newVersion}`])) !== 0) return { ok: false, error: "打标签失败" };
 	}
-	if ((await pushBranch(["origin", "main"])) !== 0) return { ok: false, error: "push main 失败（已尝试自动 rebase，仍失败请稍后重试）" };
+	if ((await pushBranch(["origin", await headBranch()])) !== 0) return { ok: false, error: "push 分支失败（已尝试自动 rebase，仍失败请稍后重试）" };
 	if ((await pushTag(["origin", `v${newVersion}`])) !== 0) return { ok: false, error: "push 标签失败（构建不会触发，请重试）" };
-	broadcast({ kind: "phase", text: `已推送 v${newVersion}，Actions 将自动构建发布` });
+	broadcast({ kind: "phase", text: `已推送 v${newVersion}（若仓库配了 Actions 将自动构建发布）` });
 	return { ok: true, version: newVersion };
 }
 
@@ -253,18 +270,26 @@ export function registerReleaseIpc() {
 				clearTimeout(timer);
 			}
 		};
+		const origin = gitAvailable()
+			? (await collect("git", ["remote", "get-url", "origin"])).out.trim()
+			: "";
+		const base = origin.replace(/^git@([^:]+):/u, "https://$1/").replace(/^https:\/\/[^@/]+@/u, "https://").replace(/\.git$/u, "");
 		const lines = [
 			await probe("github.com 主页", "https://github.com"),
-			await probe("GitHub API（更新检查用）", "https://api.github.com"),
-			await probe("Releases 最新版", "https://github.com/well74741/dsh-desktop/releases/latest")
+			await probe("GitHub API（更新检查用）", "https://api.github.com")
 		];
+		if (/^https?:\/\//u.test(base)) {
+			// 404 也视为“可达”：该仓库没有发布页/无 Releases 也正常。
+			lines.push(await probe(`本项目 Releases（${base.replace(/^https?:\/\//u, "")}）`, `${base}/releases/latest`));
+		}
 		for (const line of lines) broadcast({ kind: "out", text: line });
 		return { ok: true, results: lines };
 	});
 
 	ipcMain.handle("release:pull", async () => {
-		broadcast({ kind: "phase", text: "拉取远端（pull --rebase origin main）…" });
-		const code = await runGit(["pull", "--rebase", "origin", "main"]);
+		const branch = await headBranch();
+		broadcast({ kind: "phase", text: `拉取远端（pull --rebase origin ${branch}）…` });
+		const code = await runGit(["pull", "--rebase", "origin", branch]);
 		if (code === 0) {
 			broadcast({ kind: "phase", text: "拉取完成（若提示可推送，请点“提交并推送”）" });
 			return { ok: true };
