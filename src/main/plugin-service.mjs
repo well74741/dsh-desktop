@@ -21,6 +21,39 @@ import { analyzeManifest, bundledVersions } from "../core/compat.mjs";
 let panelWindows = () => [];
 let executorPath = process.execPath;
 
+// 插件市场搜索结果池：key = `查询词\0只看dsh` → { pool, chunk }
+// “只看 dsh”需要在更多候选里过滤，否则一页常只有一两个；这里按需多取几屏并缓存。
+const marketPool = new Map();
+const MARKET_PAGE = 12;
+
+/** 取当前查询的候选池（不足一页就继续向后翻 npm 结果），可过滤 + 按星数排序。 */
+async function marketSearch(query, page, only) {
+	const key = `${query}\x00${only ? 1 : 0}`;
+	let entry = marketPool.get(key);
+	if (!entry) {
+		entry = { pool: [], chunk: 0 };
+		marketPool.set(key, entry);
+	}
+	while (entry.pool.length < page * MARKET_PAGE && entry.chunk < 4) {
+		const { results } = await searchNpm(query, 24, entry.chunk * 24);
+		if (results.length === 0) break;
+		entry.chunk += 1;
+		const annotated = await annotateWithBundle(results);
+		await annotateStars(annotated);
+		for (const item of annotated) {
+			if (only && !item.dshBundle) continue;
+			entry.pool.push(item);
+		}
+	}
+	const pool = entry.pool.slice();
+	if (only) pool.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1)); // 只看 dsh：星数高的在前
+	return {
+		results: pool.slice((page - 1) * MARKET_PAGE, page * MARKET_PAGE),
+		total: pool.length,
+		exhausted: entry.chunk >= 4
+	};
+}
+
 export function configurePluginService({ getPanelWindows, execPath }) {
 	if (getPanelWindows) panelWindows = getPanelWindows;
 	if (execPath) executorPath = execPath;
@@ -103,17 +136,14 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 		return runWithEvents(async () => ({ info: listPlugins(home()) }), "读取插件清单…");
 	});
 
-	// text "" = 热门（推荐）feed；page 从 1 开始，每页 12（3×4）。
-	ipcMain.handle("plugins:search", async (_event, text, page = 1) => {
+	// text "" = 热门（推荐）feed；page 从 1 开始；only=true 只看 dsh 插件。
+	ipcMain.handle("plugins:search", async (_event, text, page = 1, only = false) => {
 		const query = typeof text === "string" ? text.trim() : "";
-		const from = Math.max(0, ((Number(page) || 1) - 1) * 12);
+		const pageNum = Math.max(1, Number(page) || 1);
 		try {
 			broadcast({ kind: "phase", text: query === "" ? "加载热门插件…" : `搜索 npm: ${query}` });
-			const { results, total } = await searchNpm(query, 12, from);
-			const annotated = await annotateWithBundle(results);
-			// GitHub 星数：网络/限流失败会静默跳过（返回 null），不影响列表。
-			await annotateStars(annotated);
-			return { ok: true, results: annotated, total, page: from / 12 + 1 };
+			const { results, total, exhausted } = await marketSearch(query, pageNum, Boolean(only));
+			return { ok: true, results, total, page: pageNum, exhausted };
 		} catch (error) {
 			return { ok: false, error: error instanceof Error ? error.message : String(error) };
 		}
