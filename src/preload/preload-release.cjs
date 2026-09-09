@@ -3,7 +3,7 @@
  */
 const { contextBridge, ipcRenderer } = require("electron");
 
-const ALLOWED_INVOKE = ["release:choose", "release:info", "release:net", "release:ping", "release:status", "release:pull", "release:push", "release:publish", "release:open-actions", "release:open-cred"];
+const ALLOWED_INVOKE = ["release:choose", "release:info", "release:net", "release:ping", "release:status", "release:pull", "release:push", "release:publish", "release:open-actions", "release:open-cred", "release:init", "release:add-remote", "release:open-new", "release:open-releases"];
 
 contextBridge.exposeInMainWorld("dshRelease", {
 	invoke(channel, ...args) {

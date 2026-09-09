@@ -136,23 +136,32 @@ async function collect(executable, args, env = process.env) {
 }
 
 async function info() {
+	const chosen = repoRoot !== null;
+	if (!chosen) return { ok: true, available: false, chosen: false, root: null, reason: "还没有选择项目目录。" };
 	if (!gitAvailable()) {
-		return { ok: true, available: false, reason: "未检测到 .git（这是安装版或非开发目录）；发布请用 GitHub 网页 Run workflow。" };
+		return {
+			ok: true, available: false, chosen: true, hasGit: false, root: repoRoot,
+			reason: "该目录还不是 git 仓库（没有 .git）。可以用向导里的“初始化并首次提交”开始。"
+		};
 	}
-	const branch = (await collect("git", ["branch", "--show-current"])).out || "?";
-	const remote = (await collect("git", ["remote", "get-url", "origin"])).out || "(未设置 origin)";
-	const tag = (await collect("git", ["describe", "--tags", "--abbrev=0"])).out || "(无标签)";
+	const branch = (await collect("git", ["branch", "--show-current"])).out || "";
+	const rawRemote = (await collect("git", ["remote", "get-url", "origin"])).out.trim();
+	const remote = rawRemote === "" ? "" : rawRemote.replace(/^https:\/\/[^@/]+@/u, "https://");
+	const tag = (await collect("git", ["describe", "--tags", "--abbrev=0"])).out || "";
 	const dirty = (await collect("git", ["status", "--porcelain"])).out;
 	return {
 		ok: true,
 		available: true,
+		chosen: true,
+		hasGit: true,
+		hasRemote: rawRemote !== "",
 		root: repoRoot,
 		branch,
 		remote,
-		lastTag: tag,
+		lastTag: tag || "(无标签)",
 		version: readPkgVersion(),
 		dirty: dirty === "" ? 0 : dirty.split("\n").length,
-		statusText: dirty === "" ? "工作区干净" : "有未提交改动（请先提交）"
+		statusText: dirty === "" ? "工作区干净" : `有 ${dirty.split("\n").length} 项未提交改动`
 	};
 }
 
@@ -352,5 +361,64 @@ export function registerReleaseIpc() {
 		} catch (error) {
 			return { ok: false, error: `网络失败：${String(error?.message ?? error)}（不代表发布失败，可稍后再试）`, link };
 		}
+	});
+
+	// ---------- 向导主路径：阶段1 初始化本地仓库 ----------
+	ipcMain.handle("release:init", async (_event, message) => {
+		const text = (typeof message === "string" ? message : "").trim() || "chore: initial commit";
+		if (repoRoot === null) return { ok: false, error: "请先点“选择项目…”选一个文件夹" };
+		if (gitAvailable()) return { ok: false, error: "这个目录已经是 git 仓库，无需初始化" };
+		broadcast({ kind: "phase", text: "正在把该目录变成 git 仓库…" });
+		if ((await runGit(["init"])) !== 0) return { ok: false, error: "git init 失败" };
+		const name = (await collect("git", ["config", "user.name"])).out.trim();
+		const email = (await collect("git", ["config", "user.email"])).out.trim();
+		if (name === "" || email === "") {
+			const who = (process.env.USERNAME || "user").replace(/\s+/gu, "");
+			if (name === "") await runGit(["config", "user.name", who]);
+			if (email === "") await runGit(["config", "user.email", `${who.toLowerCase()}@users.noreply.github.com`]);
+		}
+		await runGit(["add", "-A"]);
+		if ((await runGit(["commit", "-m", text])) !== 0) {
+			return { ok: false, error: "首次提交失败（可能没有任何文件被跟踪——请确认目录里确实有源码）" };
+		}
+		return { ok: true };
+	});
+
+	// ---------- 向导主路径：阶段2 连接刚建的空仓库并首次推送 ----------
+	ipcMain.handle("release:add-remote", async (_event, url) => {
+		const target = (typeof url === "string" ? url : "").trim();
+		if (repoRoot === null) return { ok: false, error: "请先选项目目录" };
+		if (!gitAvailable()) return { ok: false, error: "请先在向导里点“初始化并首次提交”" };
+		if (!/^(https:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\/)?|git@github\.com:[^/\s]+\/[^/\s]+\.git)$/u.test(target)) {
+			return { ok: false, error: "地址格式不对。应该是：https://github.com/你的用户名/仓库名" };
+		}
+		const existing = (await collect("git", ["remote", "get-url", "origin"])).out.trim();
+		if (existing === "") {
+			if ((await runGit(["remote", "add", "origin", target])) !== 0) return { ok: false, error: "添加远程失败" };
+		} else {
+			await runGit(["remote", "set-url", "origin", target]);
+		}
+		await runGit(["branch", "-M", "main"]);
+		broadcast({ kind: "phase", text: "正在首次推送到 GitHub…（若弹出 GitHub 登录窗口，选你的账号登录一次即可）" });
+		let code = await runGit(["push", "-u", "origin", "main"]);
+		if (code !== 0) {
+			await runGit(["pull", "--rebase", "origin", "main"]);
+			code = await runGit(["push", "-u", "origin", "main"]);
+		}
+		if (code !== 0) {
+			return { ok: false, error: "推送失败（网络/未登录）。可稍后点“重试”，或用“凭据/账号…”检查登录" };
+		}
+		return { ok: true };
+	});
+
+	// ---------- 向导：把账号步骤引导到网页 ----------
+	ipcMain.handle("release:open-new", async () => {
+		await shell.openExternal("https://github.com/new");
+		return { ok: true };
+	});
+
+	ipcMain.handle("release:open-releases", async () => {
+		await shell.openExternal((await actionsUrl()).replace(/\/actions$/u, "/releases/new"));
+		return { ok: true };
 	});
 }

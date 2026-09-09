@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
-<title>DSH Studio 发布中心</title>
+<title>DSH Studio · Git 发布向导</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.5 "Segoe UI", system-ui, sans-serif; background: #111318; color: #d7dbe3;
+  body { margin: 0; font: 13px/1.6 "Segoe UI", system-ui, "Microsoft YaHei", sans-serif; background: #111318; color: #d7dbe3;
          display: flex; flex-direction: column; height: 100vh; }
-  header { padding: 12px 16px; border-bottom: 1px solid #232733; background: #161a22; }
-  header h1 { margin: 0 0 6px; font-size: 15px; color: #fff; }
+  header { padding: 12px 16px 10px; border-bottom: 1px solid #232733; background: #161a22; }
+  header h1 { margin: 0 0 4px; font-size: 15px; color: #fff; }
   #meta { color: #8b93a5; font-size: 12px; word-break: break-all; }
   .bar { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #232733; align-items: center; flex-wrap: wrap; }
   .bar button { background: #1e2430; color: #dfe3ec; border: 1px solid #2f3647; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
@@ -19,172 +19,240 @@
   .bar button.danger { color: #ff9d5c; border-color: #5c3c1e; }
   .bar input[type="text"] { flex: 1 1 240px; max-width: 420px; background: #0d0f13; color: #e6e9f0;
         border: 1px solid #2c3140; border-radius: 6px; padding: 7px 10px; }
-  .bar select { background: #0d0f13; color: #e6e9f0; border: 1px solid #2c3140; border-radius: 6px; padding: 7px; }
   main { flex: 1; overflow: auto; padding: 12px 16px; }
-  .card { background: #161a22; border: 1px solid #232733; border-radius: 8px; padding: 12px; }
-  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; }
-  .kv b { color: #98a0b3; font-weight: 500; }
-  #events { background: #0b0d10; border: 1px solid #232733; border-radius: 6px; margin: 10px 16px; padding: 8px 12px;
-            height: 150px; overflow: auto; font: 11px/1.5 Consolas, monospace; color: #9fd8c0; white-space: pre-wrap; }
-  #status { margin: 0 16px 12px; color: #8b93a5; font-size: 12px; }
-  .warn { color: #e0b45c; }
+  .card { background: #161a22; border: 1px solid #232733; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .stepno { display: inline-block; min-width: 22px; height: 22px; line-height: 22px; text-align: center;
+            border-radius: 50%; background: #2d5bd7; color: #fff; font-size: 12px; margin-right: 8px; }
+  .web { background: #b7791f; }
+  .done { background: #2e7d32; }
+  .card h3 { margin: 0 0 8px; font-size: 14px; color: #fff; font-weight: 600; }
+  .card p, .card li { color: #b7bfcc; margin: 4px 0; }
+  .card ul { margin: 4px 0 8px; padding-left: 18px; }
+  .rowline { display: flex; gap: 8px; margin: 8px 0; align-items: center; flex-wrap: wrap; }
+  .rowline input[type="text"] { flex: 1 1 260px; background: #0d0f13; color: #e6e9f0; border: 1px solid #2c3140; border-radius: 6px; padding: 7px 10px; }
+  .kv { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; font-size: 12px; color: #c3cad6; }
+  .kv b { color: #8b93a5; font-weight: 500; }
+  details.advanced { border-top: 1px dashed #2a2f3c; margin-top: 4px; padding-top: 6px; }
+  details.advanced summary { color: #6f7888; cursor: pointer; font-size: 12px; }
+  .advrow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px 0 4px; }
+  .advrow button { background: #1e2430; color: #b9c2cf; border: 1px solid #2f3647; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+  .advrow select, .advrow input { background: #0d0f13; color: #e6e9f0; border: 1px solid #2c3140; border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+  #events { background: #0b0d10; border: 1px solid #232733; border-radius: 6px; margin: 6px 16px; padding: 8px 12px;
+            height: 110px; overflow: auto; font: 11px/1.5 Consolas, monospace; color: #9fd8c0; white-space: pre-wrap; }
+  #status { margin: 0 16px 12px; color: #8b93a5; font-size: 12px; min-height: 16px; }
+  .ok { color: #3ecf8e; } .warn { color: #e0b45c; } .bad { color: #ff6b6b; }
+  button[disabled] { opacity: .55; cursor: default; }
 </style>
 </head>
 <body>
 <header>
-  <h1>DSH Studio · 发布中心</h1>
+  <h1>DSH Studio · Git 发布向导</h1>
   <div id="meta">读取中…</div>
 </header>
 <div class="bar">
-  <button class="primary" id="btn-push">提交并推送代码</button>
-  <input id="commit-msg" type="text" placeholder="提交说明（必填）" value="chore: update" />
-  <span style="color:#8b93a5">｜发布新版本：</span>
-  <select id="bump-kind">
-    <option value="patch">patch (0.1.x)</option>
-    <option value="minor">minor (0.x.0)</option>
-    <option value="major">major (x.0.0)</option>
-  </select>
-  <input id="custom-ver" type="text" placeholder="或自定义版本号，如 0.2.0（留空用左侧类型）" style="flex:1 1 220px;max-width:260px" />
-  <button id="btn-publish" class="danger">发布并推送</button>
-  <button id="btn-net">网络检查</button>
-  <button id="btn-pull">拉取远端</button>
-  <button id="btn-actions">打开 Actions</button>
-  <button id="btn-status">构建状态</button>
-  <button id="btn-cred" title="切换/修改推送用的 GitHub 账号（Windows 系统凭据）">凭据/账号…</button>
-  <button id="btn-choose">选择项目…</button>
-  <button id="btn-refresh">刷新</button>
+  <button id="btn-choose">📂 选择项目…</button>
+  <button id="btn-refresh">🔄 刷新检测</button>
 </div>
-<main><div class="card"><div class="kv" id="kv"></div></div></main>
+<main id="wizard"></main>
 <div id="events">— 日志 —</div>
 <div id="status"></div>
 <script>
   const api = window.dshRelease;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
+  let busy = false;
   function setStatus(t) { $("status").textContent = t; }
   function addEvent(line) { const el = $("events"); el.textContent += line + "\n"; el.scrollTop = el.scrollHeight; }
 
-  /** IPC 包装：25 秒超时兜底，永不“无限读取中”。 */
   function call(channel, ...args) {
     return new Promise((resolve) => {
       let done = false;
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        resolve({ ok: false, error: "等待主进程超时（可能卡住），可点重试" });
-      }, 25000);
+      const timer = setTimeout(() => { if (!done) { done = true; resolve({ ok: false, error: "等待主进程超时（可点刷新重试）" }); } }, 60000);
       api.invoke(channel, ...args).then(
-        (result) => { if (!done) { done = true; clearTimeout(timer); resolve(result); } },
-        (error) => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, error: String((error && error.message) || error) }); } }
+        (r) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } },
+        (e) => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, error: String((e && e.message) || e) }); } }
       );
     });
   }
-  function errHtml(text, retryFn) {
-    return `<div class="card">加载失败：${esc(text)}<br/><br/><button onclick="${retryFn}()">重试</button></div>`;
-  }
-
   api.onEvent((p) => {
     if (p.kind === "phase") setStatus(p.text);
-    else if (p.kind === "line") addEvent(p.text);
-    else if (p.kind === "out") addEvent(p.text);
+    else if (p.kind === "line" || p.kind === "out") addEvent(p.text);
     else if (p.kind === "err") addEvent("!! " + p.text);
   });
 
+  const card = (html) => `<div class="card">${html}</div>`;
+  const step = (n, cls, title) => `<span class="stepno ${cls || ""}">${n}</span><b style="color:#fff">${title}</b>`;
+
+  let state = null;
+
   async function refresh() {
     const res = await call("release:info");
-    if (!res.ok) { $("kv").innerHTML = errHtml(res.error, "refresh"); setStatus(""); return; }
-    if (!res.available) {
-      $("kv").innerHTML = `<div class="warn">还没有选择 git 项目。点上方“选择项目…”挑选任意一个带 .git 的文件夹，即可对它做 提交/推送/拉取/发版。</div>`;
-      $("meta").textContent = res.reason || "";
-      $("btn-push").disabled = true;
-      $("btn-publish").disabled = true;
-      return;
-    }
-    $("kv").innerHTML = `
-      <b>工作目录</b><span>${esc(res.root)}</span>
-      <b>当前版本</b><span>${esc(res.version ?? "?")}（最近标签 ${esc(res.lastTag)}）</span>
-      <b>分支/远端</b><span>${esc(res.branch)} → ${esc(res.remote)}</span>
-      <b>工作区</b><span class="${res.dirty > 0 ? "warn" : ""}">${esc(res.statusText)}</span>`;
-    $("meta").textContent = `发布方式：点「发布并推送」= 升级版本→提交→打标签→推送（Actions 自动构建发布）。推送会弹出 GitHub 登录。`;
-    api.invoke("release:ping").then((r) => {
-      const extra = r && r.ok ? `GitHub API：正常（${r.ms} ms）` : `GitHub API：不通（${r && r.ms ? r.ms + " ms" : ""}，点“网络检查”看详情）`;
-      $("meta").textContent += ` ｜ ${extra}`;
-    }).catch(() => {});
-    $("btn-push").disabled = false;
-    $("btn-publish").disabled = res.dirty > 0;
+    if (!res.ok) { $("wizard").innerHTML = card("读取失败：" + esc(res.error)); setStatus(""); return; }
+    state = res;
+    $("meta").textContent = res.chosen && res.root ? "目录：" + esc(res.root) : "尚未选择项目目录";
+    renderWizard(res);
   }
 
-  async function pushCode() {
-    const msg = $("commit-msg").value.trim();
-    if (!msg) { setStatus("请填写提交说明"); return; }
-    if (!confirm(`将把最新代码改动提交并上传到 GitHub（不产生新版本、不生成 exe）。\n说明：${msg}\n继续吗？`)) return;
-    const res = await api.invoke("release:push", msg);
-    setStatus(res.ok ? "推送完成 ✅" : `失败: ${res.error}`);
-    if (res.ok) await refresh();
+  function renderWizard(r) {
+    let html = "";
+    if (!r.chosen) {
+      html = card(`<h3>👋 欢迎使用发布向导</h3>
+        <p>把任意本地项目上传到 GitHub，全程 3 步：<b>初始化仓库 → 网页建仓库 → 连接并推送</b>。</p>
+        <p>点上方「📂 选择项目…」选你的项目文件夹即可开始。</p>
+        <p style="color:#6f7888">说明：全程不要求你在本应用里输入账号密码。需要登录的步骤会打开 GitHub 网页由你操作。</p>`);
+    } else if (!r.hasGit) {
+      html = card(`${step(1, "", "把这个文件夹变成 Git 仓库")}
+        <p>目录：<span class="warn">${esc(r.root)}</span></p>
+        <p>这个文件夹还不是 git 仓库。点下面按钮会自动：初始化仓库 → 加入所有文件 → 完成首次提交（不影响你磁盘上的文件，只是开始记账）。</p>
+        <div class="rowline">
+          <input id="init-msg" type="text" placeholder="首次提交说明（可默认）" value="chore: initial commit" />
+          <button class="primary" id="btn-init">🚀 初始化并首次提交</button>
+        </div>
+        <p style="color:#6f7888">小建议：如果文件夹里有打包产物/缓存（dist、build、__pycache__、*.exe、*.zip），先在项目里建好 .gitignore 把它们排除，避免大文件进仓库。</p>`);
+    } else if (!r.hasRemote) {
+      html = card(`${step(1, "done", "本地仓库已建好")}<p>分支：${esc(r.branch || "main")} ｜ 改动：${r.dirty} 项</p>`)
+        + card(`${step(2, "web", "去 GitHub 建一个空仓库（需要你网页操作）")}
+        <ul>
+          <li>点下面的按钮打开“新建仓库”页面（会用你的 GitHub 登录）；</li>
+          <li>仓库名随意（如 oi-desktop-pet）；可见性选 <b>公开 Public</b> 或 <b>私有 Private</b> 都行；</li>
+          <li><b>不要</b>勾选 “Add a README / .gitignore / license”（保持空仓库，避免冲突）；</li>
+          <li>点 <b>Create repository</b> 创建。</li>
+        </ul>
+        <div class="rowline"><button id="btn-new">🔐 打开 GitHub 新建仓库页</button></div>`)
+        + card(`${step(3, "web", "把地址贴进来，连接并首次推送")}
+        <p>建好后，把浏览器地址栏里的仓库地址复制进来，形如：<span style="color:#6f7888">https://github.com/你的用户名/仓库名</span></p>
+        <div class="rowline">
+          <input id="remote-url" type="text" placeholder="https://github.com/用户名/仓库名" />
+          <button class="primary" id="btn-connect">🔗 连接并首次推送</button>
+        </div>
+        <p style="color:#6f7888">首次推送若弹出 GitHub 登录窗口（Windows 弹的），选你的账号登录一次即可——本应用不保存你的账号。</p>`);
+    } else {
+      const verPart = r.version ? `<span class="badge">版本：${esc(r.version)}</span>` : "";
+      const dirtyBadge = r.dirty > 0 ? `<span class="warn">● ${r.dirty} 项未提交</span>` : `<span class="ok">● 工作区干净</span>`;
+      html = card(`${step(3, "done", "已在 GitHub 上 ✓")}
+        <div class="kv">
+          <b>项目</b><span>${esc((r.root || "").split(/[\\/]/).pop())}</span>
+          <b>分支</b><span>${esc(r.branch || "main")}</span>
+          <b>远程</b><span>${esc(r.remote || "—")}</span>
+          ${verPart ? `<b>版本</b><span>${verPart}</span>` : ""}
+          <b>状态</b><span>${dirtyBadge}</span>
+        </div>`)
+        + card(`${step(4, "", "日常：改完代码就上传")}
+        <div class="rowline">
+          <input id="commit-msg" type="text" placeholder="提交说明（必填），如：feat: 加了个新功能" value="" />
+          <button class="primary" id="btn-push">⬆️ 提交并推送</button>
+          <button id="btn-pull-2">拉取远端同步</button>
+        </div>`)
+        + card(`${step(5, "web", "发新版 / 上传成品（可选）")}
+        <p>exe、安装包等成品通过 GitHub 网页发布（App 不存你的账号，只能引导你到网页操作）。</p>
+        <div class="rowline">
+          <button id="btn-releases">🔐 打开本项目的 Releases 发布页</button>
+          ${r.version ? `<button id="btn-publish" class="danger">高级：发 npm 版本并推送 tag</button>` : ""}
+        </div>`);
+    }
+
+    html += `<details class="advanced"><summary>高级（开发维护用）</summary>
+      <div class="advrow">
+        <button id="btn-net">网络检查</button>
+        <button id="btn-actions">打开 Actions</button>
+        <button id="btn-status">构建状态</button>
+        <button id="btn-cred">凭据/账号…</button>
+      </div>
+      <div class="advrow">
+        <span style="color:#6f7888">版本类型：</span>
+        <select id="bump-kind">
+          <option value="patch">patch (0.1.x)</option>
+          <option value="minor">minor (0.x.0)</option>
+          <option value="major">major (x.0.0)</option>
+        </select>
+        <input id="custom-ver" type="text" placeholder="或自定义版本号 0.2.0（留空用左侧）" style="width:220px" />
+      </div>
+      <div class="advrow">
+        <button id="btn-pull">高级：拉取</button>
+        <button id="btn-publish2" class="danger">发布并推送（npm 项目）</button>
+      </div>
+    </details>`;
+
+    $("wizard").innerHTML = html;
+    wireWizard(r);
+  }
+
+  function wireWizard(r) {
+    const on = (id, fn) => { const el = $(id); if (el) el.addEventListener("click", fn); };
+    const busyOn = (on) => { busy = on; const btns = document.querySelectorAll("button"); for (const b of btns) b.disabled = on; };
+    on("btn-init", async () => {
+      if (!confirm("将在该文件夹执行：git init + 首次提交（只开始版本记账，不改动你的文件）。继续？")) return;
+      busyOn(true); setStatus("正在初始化…");
+      const res = await call("release:init", $("init-msg").value);
+      setStatus(res.ok ? "初始化完成 ✅（去第 2 步）" : "失败：" + res.error);
+      busyOn(false); await refresh();
+    });
+    on("btn-new", () => { api.invoke("release:open-new").catch(() => {}); });
+    on("btn-connect", async () => {
+      const url = $("remote-url").value.trim();
+      if (!url) { setStatus("请先粘贴 GitHub 仓库地址"); return; }
+      busyOn(true); setStatus("正在连接并推送…（首次会弹 GitHub 登录，属正常）");
+      const res = await call("release:add-remote", url);
+      setStatus(res.ok ? "已连接并推送成功 🎉" : "失败：" + res.error);
+      busyOn(false); await refresh();
+    });
+    on("btn-push", async () => {
+      const msg = $("commit-msg").value.trim();
+      if (!msg) { setStatus("请填写提交说明"); return; }
+      if (!confirm("将把改动提交并上传到 GitHub（不产新版本）。说明：" + msg + "\n继续？")) return;
+      busyOn(true); const res = await call("release:push", msg);
+      setStatus(res.ok ? "推送完成 ✅" : "失败：" + res.error);
+      busyOn(false); await refresh();
+    });
+    on("btn-pull-2", pullRemote);
+    on("btn-releases", () => api.invoke("release:open-releases").catch(() => {}));
+    on("btn-publish", publish);   // 主区（有 package.json 时）
+    on("btn-publish2", publish);  // 高级区
+    on("btn-net", netCheck);
+    on("btn-actions", () => api.invoke("release:open-actions").catch(() => {}));
+    on("btn-status", refreshStatus);
+    on("btn-cred", () => api.invoke("release:open-cred").catch(() => {}));
+    on("btn-pull", pullRemote);
+    // 高级“发布并推送”仅在确实有 npm 项目时才出现；无 package.json 时后端也会给明确提示
+    const pubBtn = $("btn-publish");
+    if (pubBtn && !r.version) pubBtn.remove();
   }
 
   async function publish() {
-    const custom = $("custom-ver").value.trim();
-    const kind = custom !== "" ? custom : $("bump-kind").value;
-    if (!confirm(`发布“${kind}”版本？将：升级版本号→提交→打标签→推送，Actions 会自动构建发布。`)) return;
-    addEvent(`>> 发布 ${kind} …`);
-    const res = await api.invoke("release:publish", kind);
-    setStatus(res.ok ? `已推送 ${res.version}，正在观察构建状态…` : `失败: ${res.error}`);
-    if (res.ok) { await refresh(); void pollStatusUntilSettled(); }
+    const custom = $("custom-ver") ? $("custom-ver").value.trim() : "";
+    const kind = custom !== "" ? custom : ($("bump-kind") ? $("bump-kind").value : "patch");
+    if (!confirm(`发布“${kind}”版本？将：升级版本号→提交→打标签→推送（仓库若配了 Actions 会云端构建）。`)) return;
+    addEvent(">> 发布 " + kind + " …");
+    const res = await call("release:publish", kind);
+    setStatus(res.ok ? "已推送 " + res.version : "失败: " + res.error);
+    if (res.ok) { await refresh(); }
   }
 
   async function netCheck() {
     addEvent(">> 网络检查…");
-    const res = await api.invoke("release:net");
-    if (res.ok) {
-      res.results.forEach((l) => addEvent(l));
-      addEvent("提示：本机连 GitHub API 不稳 ≠ 发布失败；网页上传/网页查看走浏览器，不受影响。可在浏览器打开 Releases 页确认。");
-      setStatus("网络检查完成");
-    } else { addEvent(`!! ${res.error}`); }
+    const res = await call("release:net");
+    if (res.ok) { res.results.forEach((l) => addEvent(l)); addEvent("提示：本机连 GitHub API 不稳 ≠ 发布失败；网页上传/网页查看不受影响。"); setStatus("网络检查完成"); }
+    else addEvent("!! " + res.error);
   }
 
   async function pullRemote() {
-    if (!confirm("“拉取远端”会：把 GitHub 上的最新提交合并到本地（以远端为主），并把你本地还没推送的提交重新放到上面。\n\n它不会动你未提交的改动；若本地已有冲突会中止并提示。\n\n确定执行吗？")) return;
-    addEvent(">> 拉取远端（pull --rebase origin 当前分支）…");
-    const res = await api.invoke("release:pull");
-    setStatus(res.ok ? "拉取完成" : `拉取失败：${res.error}`);
+    if (!confirm("“拉取”会把 GitHub 最新提交合并到本地（以远端为主），把你本地未推送的提交垫在上面；不会动未提交改动；冲突会停下让你处理。继续？")) return;
+    addEvent(">> 拉取远端…");
+    const res = await call("release:pull");
+    setStatus(res.ok ? "拉取完成" : "拉取失败：" + res.error);
     if (res.ok) await refresh();
   }
 
-  async function chooseProject() {
-    addEvent(">> 选择项目…");
-    const res = await call("release:choose");
-    if (!res.ok) { setStatus(`未选择/失败：${res.error}`); return; }
-    setStatus("已切换项目");
-    await refresh();
-  }
-
-  let statusTimer = null;
   async function refreshStatus() {
     const r = await call("release:status");
-    const text = r.ok ? `构建状态：${r.state}` : `构建状态：${r.error}`;
-    setStatus(text);
-    return r.ok ? r.state : null;
-  }
-  async function pollStatusUntilSettled() {
-    clearInterval(statusTimer);
-    const tries = 20; let i = 0;
-    statusTimer = setInterval(async () => {
-      i += 1;
-      const state = await refreshStatus();
-      if (i >= tries || (state && /成功|失败/.test(state))) clearInterval(statusTimer);
-    }, 20000);
+    setStatus(r.ok ? "构建状态：" + r.state : "构建状态：" + r.error);
   }
 
-  $("btn-push").addEventListener("click", pushCode);
-  $("btn-publish").addEventListener("click", publish);
-  $("btn-net").addEventListener("click", netCheck);
-  $("btn-pull").addEventListener("click", pullRemote);
-  $("btn-actions").addEventListener("click", () => api.invoke("release:open-actions"));
-  $("btn-status").addEventListener("click", () => refreshStatus());
-  $("btn-cred").addEventListener("click", () => api.invoke("release:open-cred"));
-  $("btn-choose").addEventListener("click", chooseProject);
+  $("btn-choose").addEventListener("click", async () => {
+    const res = await call("release:choose");
+    if (!res.ok) setStatus("未选择/失败：" + res.error);
+    else { setStatus("已切换项目"); await refresh(); }
+  });
   $("btn-refresh").addEventListener("click", refresh);
   refresh();
 </script>
