@@ -14,7 +14,7 @@ import {
 	installPlugin,
 	uninstallPlugin
 } from "../core/pluginctl.mjs";
-import { searchNpm, annotateWithBundle, annotateStars, describePackage } from "../core/registry.mjs";
+import { searchNpm, annotateWithBundle, annotateStars, annotateDownloads, describePackage } from "../core/registry.mjs";
 import { analyzeManifest, bundledVersions } from "../core/compat.mjs";
 
 /** windows that should receive progress events (the panel windows). */
@@ -27,8 +27,8 @@ const marketPool = new Map();
 const MARKET_PAGE = 12;
 
 /** 取当前查询的候选池（不足一页就继续向后翻 npm 结果），可过滤 + 按星数排序。 */
-async function marketSearch(query, page, only) {
-	const key = `${query}\x00${only ? 1 : 0}`;
+async function marketSearch(query, page, only, sort) {
+	const key = `${query}\x00${only ? 1 : 0}\x00${sort || ""}`;
 	let entry = marketPool.get(key);
 	if (!entry) {
 		entry = { pool: [], chunk: 0 };
@@ -46,7 +46,12 @@ async function marketSearch(query, page, only) {
 		}
 	}
 	const pool = entry.pool.slice();
-	if (only) pool.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1)); // 只看 dsh：星数高的在前
+	if (sort === "downloads") {
+		await annotateDownloads(pool);
+		pool.sort((a, b) => (b.downloads ?? -1) - (a.downloads ?? -1));
+	} else if (sort === "stars" || (only && !sort)) {
+		pool.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
+	}
 	return {
 		results: pool.slice((page - 1) * MARKET_PAGE, page * MARKET_PAGE),
 		total: pool.length,
@@ -136,13 +141,13 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 		return runWithEvents(async () => ({ info: listPlugins(home()) }), "读取插件清单…");
 	});
 
-	// text "" = 热门（推荐）feed；page 从 1 开始；only=true 只看 dsh 插件。
-	ipcMain.handle("plugins:search", async (_event, text, page = 1, only = false) => {
+	// text "" = 热门（推荐）feed；page 从 1 开始；only=true 只看 dsh；sort=stars|downloads。
+	ipcMain.handle("plugins:search", async (_event, text, page = 1, only = false, sort = "") => {
 		const query = typeof text === "string" ? text.trim() : "";
 		const pageNum = Math.max(1, Number(page) || 1);
 		try {
 			broadcast({ kind: "phase", text: query === "" ? "加载热门插件…" : `搜索 npm: ${query}` });
-			const { results, total, exhausted } = await marketSearch(query, pageNum, Boolean(only));
+			const { results, total, exhausted } = await marketSearch(query, pageNum, Boolean(only), String(sort || ""));
 			return { ok: true, results, total, page: pageNum, exhausted };
 		} catch (error) {
 			return { ok: false, error: error instanceof Error ? error.message : String(error) };

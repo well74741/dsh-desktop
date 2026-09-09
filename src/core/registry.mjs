@@ -73,6 +73,40 @@ export async function annotateStars(results) {
 	return list;
 }
 
+// npm 月下载量缓存（会话内），避免反复请求。
+const downloadCache = new Map();
+
+/** npm 近 30 天下载量；失败返回 null（不阻塞列表）。 */
+export async function fetchDownloads(name) {
+	if (typeof name !== "string" || name === "") return null;
+	const key = name;
+	if (downloadCache.has(key)) return downloadCache.get(key);
+	try {
+		const url = `https://api.npmjs.org/downloads/point/last-month/${registryName(name)}`;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), 6000);
+		const res = await fetch(url, { headers: { accept: "application/json", "user-agent": "dsh-studio-plugin-market" }, signal: controller.signal });
+		clearTimeout(timer);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const body = await res.json();
+		const value = typeof body.downloads === "number" ? body.downloads : null;
+		downloadCache.set(key, value);
+		return value;
+	} catch {
+		downloadCache.set(key, null);
+		return null;
+	}
+}
+
+/** Annotate a result list with `downloads`（npm 近 30 天）. */
+export async function annotateDownloads(results) {
+	const list = Array.isArray(results) ? results : [];
+	for (const item of list) {
+		if (typeof item?.name === "string") item.downloads = await fetchDownloads(item.name);
+	}
+	return list;
+}
+
 async function getJson(url) {
 	const res = await fetch(url, { headers: { accept: "application/json" } });
 	if (!res.ok) throw new Error(`registry ${res.status} for ${url}`);

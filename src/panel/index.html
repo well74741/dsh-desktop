@@ -38,6 +38,7 @@
   .pcard h4 { margin: 0 0 2px; font-size: 13px; color: #fff; cursor: pointer; word-break: break-all; }
   .pcard .ver { color: #8b93a5; font-size: 11px; }
   .pcard .stars { color: #e8b64c; margin-left: 4px; }
+  .pcard .dl { color: #7fbdff; margin-left: 6px; }
   .pcard .desc { flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 4px 0 6px; }
   .pcard .ops { display: flex; gap: 6px; }
   .pagination { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
@@ -74,6 +75,11 @@
       <button id="btn-hot" class="primary">热门</button>
       <input id="q" type="text" placeholder="搜索 npm 包（回车搜索）" />
       <button id="btn-search">搜索</button>
+      <select id="sort-opt" title="排序方式">
+        <option value="">默认</option>
+        <option value="stars">⭐ 星数</option>
+        <option value="downloads">下载量 ↓</option>
+      </select>
       <div id="market-count" class="meta2"></div>
       <label style="color:#8b93a5;font-size:12px"><input type="checkbox" id="only-bundle" /> 只看 dsh 插件</label>
     </div>
@@ -142,11 +148,15 @@
     const s = r && r.stars;
     return typeof s === "number" && s >= 0 ? `<span class="stars">⭐ ${esc(fmtStars(s))}</span>` : "";
   }
+  function dlHtml(r) {
+    const d = r && r.downloads;
+    return typeof d === "number" && d >= 0 ? `<span class="dl" title="npm 近 30 天下载量">⇩ ${esc(fmtStars(d))}/月</span>` : "";
+  }
 
   function cardHtml(r) {
     return `<div class="pcard">
       <h4 title="点击看详情">${esc(r.name)}</h4>
-      <div class="ver">v${esc(r.version)} ${pill(r)}${starHtml(r)}</div>
+      <div class="ver">v${esc(r.version)} ${pill(r)}${starHtml(r)}${dlHtml(r)}</div>
       <div class="desc">${esc(r.description || "（无描述）")}</div>
       <div class="ops">
         <button data-detail="${esc(r.name)}">详情</button>
@@ -170,18 +180,19 @@
   async function loadMarket() {
     const box = $("market-results");
     const only = $("only-bundle").checked;
+    const sort = $("sort-opt") ? $("sort-opt").value : "";
     box.innerHTML = `<div class="empty">${market.query === "" ? "加载热门插件…" : "搜索中…"}</div>`;
-    const res = await call("plugins:search", market.query, market.page, only);
+    const res = await call("plugins:search", market.query, market.page, only, sort);
     if (!res.ok) { box.innerHTML = errHtml(`加载失败：${esc(res.error)}`, "loadMarket"); return; }
     market.total = res.total ?? 0;
     lastResults = res.results;
     updateHotUi();
     const onlyPart = only ? "只看 dsh 插件" : (market.query === "" ? "热门" : `“${esc(market.query)}”`);
-    const sortHint = only ? " · 按 ⭐ 星数排序" : (market.query === "" ? "（按相关度/热度）" : "");
+    const sortLabel = sort === "downloads" ? "按 下载量 ↓" : sort === "stars" ? "按 ⭐ 星数" : only ? "默认按 ⭐ 星数" : (market.query === "" ? "按相关度/热度" : "默认");
     let allShown = "";
-    if (only && (res.exhausted || market.total <= market.per)) allShown = "（已全部显示）";
+    if (res.exhausted || market.total <= market.per) allShown = "（已全部显示）";
     if (only && market.total > 1) allShown += "（同仓库多包星数会重复）";
-    $("market-count").textContent = `${onlyPart} · ${market.total} 个${sortHint}${allShown}`;
+    $("market-count").textContent = `${onlyPart} · ${market.total} 个 · ${sortLabel}${allShown}`;
     renderMarket();
     renderPager();
   }
@@ -315,6 +326,7 @@
     market.page = 1;
     loadMarket();
   });
+  $("sort-opt").addEventListener("change", () => { market.page = 1; loadMarket(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-search").click(); });
   $("btn-prev").addEventListener("click", () => { if (market.page > 1) { market.page -= 1; loadMarket(); } });
   $("btn-next").addEventListener("click", () => { market.page += 1; loadMarket(); });
