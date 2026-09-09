@@ -137,11 +137,15 @@
   async function netCheck() {
     addEvent(">> 网络检查…");
     const res = await api.invoke("release:net");
-    if (res.ok) { res.results.forEach((l) => addEvent(l)); setStatus("网络检查完成"); }
-    else { addEvent(`!! ${res.error}`); }
+    if (res.ok) {
+      res.results.forEach((l) => addEvent(l));
+      addEvent("提示：本机连 GitHub API 不稳 ≠ 发布失败；网页上传/网页查看走浏览器，不受影响。可在浏览器打开 Releases 页确认。");
+      setStatus("网络检查完成");
+    } else { addEvent(`!! ${res.error}`); }
   }
 
   async function pullRemote() {
+    if (!confirm("“拉取远端”会：把 GitHub 上的最新提交合并到本地（以远端为主），并把你本地还没推送的提交重新放到上面。\n\n它不会动你未提交的改动；若本地已有冲突会中止并提示。\n\n确定执行吗？")) return;
     addEvent(">> 拉取远端（pull --rebase origin main）…");
     const res = await api.invoke("release:pull");
     setStatus(res.ok ? "拉取完成" : `拉取失败：${res.error}`);
@@ -159,7 +163,7 @@
   let statusTimer = null;
   async function refreshStatus() {
     const r = await call("release:status");
-    const text = r.ok ? `构建状态：${r.state}` : `构建状态：无法获取（${r.error}）`;
+    const text = r.ok ? `构建状态：${r.state}` : `构建状态：${r.error}`;
     setStatus(text);
     return r.ok ? r.state : null;
   }

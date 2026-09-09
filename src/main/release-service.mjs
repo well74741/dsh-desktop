@@ -300,24 +300,32 @@ export function registerReleaseIpc() {
 		return { ok: true };
 	});
 
-	// 构建状态：读取 release 工作流的徽章（公开仓库免登录）。
+	// 构建状态：读取“当前项目自己仓库”的 release 工作流徽章（公开仓库免登录）。
 	ipcMain.handle("release:status", async () => {
-		const badge = "https://github.com/well74741/dsh-desktop/actions/workflows/release.yml/badge.svg";
+		if (!gitAvailable()) return { ok: false, error: "未选择项目目录（先点“选择项目…”）" };
+		const { out } = await collect("git", ["remote", "get-url", "origin"]);
+		let origin = (out || "").trim();
+		if (origin === "") return { ok: false, error: "该项目没有设置 origin 远程，无法查构建" };
+		origin = origin.replace(/^git@([^:]+):/u, "https://$1/").replace(/^https:\/\/[^@/]+@/u, "https://").replace(/\.git$/u, "");
+		if (!/^https?:\/\//u.test(origin)) return { ok: false, error: "无法识别远程地址" };
+		const badge = `${origin}/actions/workflows/release.yml/badge.svg`;
+		const link = `${origin}/actions`;
 		try {
 			const controller = new AbortController();
 			const timer = setTimeout(() => controller.abort(), 8000);
 			const res = await fetch(badge, { signal: controller.signal });
 			clearTimeout(timer);
-			if (!res.ok) return { ok: false, error: `状态服务返回 ${res.status}` };
+			if (res.status === 404) return { ok: false, error: "该项目没有名为 release 的构建工作流（纯源码项目属正常）", link };
+			if (!res.ok) return { ok: false, error: `状态服务返回 ${res.status}`, link };
 			const text = await res.text();
 			let state = "未知";
 			if (/passing/i.test(text)) state = "成功 ✅";
 			else if (/failing/i.test(text)) state = "失败 ❌";
 			else if (/no status/i.test(text)) state = "暂无运行";
 			else if (/in_progress|running/i.test(text)) state = "运行中 ⏳";
-			return { ok: true, state, link: "https://github.com/well74741/dsh-desktop/actions" };
+			return { ok: true, state, link };
 		} catch (error) {
-			return { ok: false, error: String(error?.message ?? error) };
+			return { ok: false, error: `网络失败：${String(error?.message ?? error)}（不代表发布失败，可稍后再试）`, link };
 		}
 	});
 }
