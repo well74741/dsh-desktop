@@ -37,6 +37,7 @@
   .pcard:hover { border-color: #3a4256; }
   .pcard h4 { margin: 0 0 2px; font-size: 13px; color: #fff; cursor: pointer; word-break: break-all; }
   .pcard .ver { color: #8b93a5; font-size: 11px; }
+  .pcard .stars { color: #e8b64c; margin-left: 4px; }
   .pcard .desc { flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 4px 0 6px; }
   .pcard .ops { display: flex; gap: 6px; }
   .pagination { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
@@ -124,10 +125,20 @@
     else if (p.kind === "line") addEvent(p.text);
   });
 
+  function fmtStars(n) {
+    if (typeof n !== "number" || !(n >= 0)) return "";
+    if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    return String(n);
+  }
+  function starHtml(r) {
+    const s = r && r.stars;
+    return typeof s === "number" && s >= 0 ? `<span class="stars">⭐ ${esc(fmtStars(s))}</span>` : "";
+  }
+
   function cardHtml(r) {
     return `<div class="pcard">
       <h4 title="点击看详情">${esc(r.name)}</h4>
-      <div class="ver">v${esc(r.version)} ${pill(r)}</div>
+      <div class="ver">v${esc(r.version)} ${pill(r)}${starHtml(r)}</div>
       <div class="desc">${esc(r.description || "（无描述）")}</div>
       <div class="ops">
         <button data-detail="${esc(r.name)}">详情</button>

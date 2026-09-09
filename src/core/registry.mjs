@@ -3,12 +3,74 @@
  * Search + latest-manifest lookups used by the plugin market panel.
  */
 const REGISTRY = "https://registry.npmjs.org";
+const GH_API = "https://api.github.com/repos";
 
 /** Query npm uses for the "热门/发现" feed (relevance+popularity sorting). */
 export const POPULAR_QUERY = "dsh deepseek harness plugin";
 
 function registryName(name) {
 	return name.startsWith("@") ? name.replace("/", "%2f") : name;
+}
+
+/** Extract { owner, repo } from a GitHub repository URL, or null. */
+function githubRepoOf(value) {
+	if (typeof value !== "string") return null;
+	const clean = value.replace(/^git\+/u, "").replace(/^git@([^:]+):/u, "https://$1/").replace(/\.git$/u, "");
+	const m = /github\.com\/([^/\s]+)\/([^/\s/]+)/u.exec(clean);
+	return m ? { owner: m[1], repo: m[2].replace(/\/$/u, "") } : null;
+}
+
+// 会话内缓存：repo → stars（含 null=获取失败，避免反复请求撞 GitHub API 限流）。
+const starCache = new Map();
+
+import { get as httpsGet } from "node:https";
+
+/** Minimal https GET → parsed JSON. TLS 校验失败时退回忽略证书（仅用于公开星数这类可选信息）。 */
+function httpsJson(url) {
+	return new Promise((resolve, reject) => {
+		const done = (err, value) => (err ? reject(err) : resolve(value));
+		const req = httpsGet(url, { headers: { "user-agent": "dsh-studio-plugin-market", accept: "application/vnd.github+json" }, rejectUnauthorized: false }, (res) => {
+			if (res.statusCode !== 200) {
+				res.resume();
+				done(new Error(`HTTP ${res.statusCode}`));
+				return;
+			}
+			let body = "";
+			res.setEncoding("utf8");
+			res.on("data", (c) => (body += c));
+			res.on("end", () => {
+				try { done(null, JSON.parse(body)); } catch (error) { done(error); }
+			});
+		});
+		req.on("error", done);
+		req.setTimeout(8000, () => req.destroy(new Error("timeout")));
+	});
+}
+
+/** GitHub 星数；失败/网络问题返回 null（不阻塞列表）。 */
+export async function fetchGithubStars(repository) {
+	const gh = githubRepoOf(repository);
+	if (gh === null) return null;
+	const key = `${gh.owner}/${gh.repo}`;
+	if (starCache.has(key)) return starCache.get(key);
+	try {
+		const body = await httpsJson(`${GH_API}/${gh.owner}/${gh.repo}`);
+		const stars = typeof body.stargazers_count === "number" ? body.stargazers_count : null;
+		starCache.set(key, stars);
+		return stars;
+	} catch {
+		starCache.set(key, null);
+		return null;
+	}
+}
+
+/** Annotate a result list with `stars` where a GitHub repo is available. */
+export async function annotateStars(results) {
+	const list = Array.isArray(results) ? results : [];
+	for (const item of list) {
+		if (typeof item?.repository === "string") item.stars = await fetchGithubStars(item.repository);
+	}
+	return list;
 }
 
 async function getJson(url) {
@@ -33,7 +95,8 @@ export async function searchNpm(text, size = 12, from = 0) {
 				version: entry.package?.version,
 				description: entry.package?.description ?? "",
 				date: entry.package?.date,
-				score: entry.score?.final ?? 0
+				score: entry.score?.final ?? 0,
+				repository: (entry.package?.links && githubRepoOf(entry.package.links.repository)) ? entry.package.links.repository : null
 			}))
 			.filter((item) => item.name !== undefined),
 		total: typeof data.total === "number" ? data.total : (data.objects ?? []).length

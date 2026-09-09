@@ -14,7 +14,7 @@ import {
 	installPlugin,
 	uninstallPlugin
 } from "../core/pluginctl.mjs";
-import { searchNpm, annotateWithBundle, describePackage } from "../core/registry.mjs";
+import { searchNpm, annotateWithBundle, annotateStars, describePackage } from "../core/registry.mjs";
 import { analyzeManifest, bundledVersions } from "../core/compat.mjs";
 
 /** windows that should receive progress events (the panel windows). */
@@ -111,6 +111,8 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 			broadcast({ kind: "phase", text: query === "" ? "加载热门插件…" : `搜索 npm: ${query}` });
 			const { results, total } = await searchNpm(query, 12, from);
 			const annotated = await annotateWithBundle(results);
+			// GitHub 星数：网络/限流失败会静默跳过（返回 null），不影响列表。
+			await annotateStars(annotated);
 			return { ok: true, results: annotated, total, page: from / 12 + 1 };
 		} catch (error) {
 			return { ok: false, error: error instanceof Error ? error.message : String(error) };
