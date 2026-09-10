@@ -30,16 +30,17 @@
   .badge.plain { background: #3a2c12; color: #e0b45c; border: 1px solid #5c4a1e; }
   .tabs { display: flex; gap: 4px; }
   .tabs button.active { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
-  /* 3×4 卡片网格 */
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+  /* 3×4 卡片网格（minmax(0,1fr)：否则超长包名/描述会把某列撑宽 → “左宽右挤”） */
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
   .pcard { background: #161a22; border: 1px solid #232733; border-radius: 10px; padding: 10px 12px;
-           display: flex; flex-direction: column; min-height: 118px; }
+           display: flex; flex-direction: column; min-height: 118px; min-width: 0; overflow: hidden; }
   .pcard:hover { border-color: #3a4256; }
-  .pcard h4 { margin: 0 0 2px; font-size: 13px; color: #fff; cursor: pointer; word-break: break-all; }
-  .pcard .ver { color: #8b93a5; font-size: 11px; }
+  .pcard h4 { margin: 0 0 2px; font-size: 13px; color: #fff; cursor: pointer; word-break: break-all; overflow-wrap: anywhere; }
+  .pcard .ver { color: #8b93a5; font-size: 11px; overflow-wrap: anywhere; }
   .pcard .stars { color: #e8b64c; margin-left: 4px; }
   .pcard .dl { color: #7fbdff; margin-left: 6px; }
-  .pcard .desc { flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 4px 0 6px; }
+  .pcard .desc { flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+                 overflow-wrap: anywhere; margin: 4px 0 6px; }
   .pcard .ops { display: flex; gap: 6px; }
   .pagination { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
   .detail { background: #14161d; border: 1px solid #2c3140; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
