@@ -30,6 +30,9 @@
   .badge.plain { background: #3a2c12; color: #e0b45c; border: 1px solid #5c4a1e; }
   .tabs { display: flex; gap: 4px; }
   .tabs button.active { background: #2d5bd7; border-color: #2d5bd7; color: #fff; }
+  /* 从 GitHub / 本地安装插件的输入框 */
+  #spec-input { flex: 1 1 320px; min-width: 220px; background: #0d0f13; color: #e6e9f0;
+                border: 1px solid #2c3140; border-radius: 6px; padding: 7px 10px; }
   /* 3×4 卡片网格（minmax(0,1fr)：否则超长包名/描述会把某列撑宽 → “左宽右挤”） */
   .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
   .pcard { background: #161a22; border: 1px solid #232733; border-radius: 10px; padding: 10px 12px;
@@ -83,6 +86,11 @@
       </select>
       <div id="market-count" class="meta2"></div>
       <label style="color:#8b93a5;font-size:12px"><input type="checkbox" id="only-bundle" /> 只看 dsh 插件</label>
+    </div>
+    <div style="display:flex;gap:8px;margin:6px 0 4px;align-items:center;flex-wrap:wrap">
+      <input id="spec-input" type="text" placeholder="从 GitHub / 本地安装：github:owner/repo 或 D:\path\to\plugin" />
+      <button id="btn-install-spec">安装这个来源</button>
+      <span class="meta2" style="color:#6f7789;font-size:12px">没上 npm 的插件（如 dsh-watcher）用这里；装完点上方“重启内核以生效”</span>
     </div>
     <div id="market-results"></div>
     <div class="pagination" id="mkt-page" hidden>
@@ -329,6 +337,16 @@
   });
   $("sort-opt").addEventListener("change", () => { market.page = 1; loadMarket(); });
   $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-search").click(); });
+  $("btn-install-spec").addEventListener("click", async () => {
+    const spec = $("spec-input").value.trim();
+    if (!spec) { setStatus("请填写插件来源（github:owner/repo 或本地路径）"); return; }
+    setStatus(`安装 ${spec} …（GitHub 拉取可能较慢，请稍候）`);
+    addEvent(`>> 安装来源 ${spec}`);
+    const res = await call("plugins:install-spec", spec);
+    if (res.ok) { setStatus("已安装 ✅ 请点“重启内核以生效”"); addEvent("安装完成"); $("spec-input").value = ""; }
+    else { setStatus(`安装失败：${res.error}`); addEvent(`!! ${res.error}`); }
+  });
+  $("spec-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-install-spec").click(); });
   $("btn-prev").addEventListener("click", () => { if (market.page > 1) { market.page -= 1; loadMarket(); } });
   $("btn-next").addEventListener("click", () => { market.page += 1; loadMarket(); });
   $("btn-refresh").addEventListener("click", () => renderInstalled());

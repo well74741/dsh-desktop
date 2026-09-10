@@ -8,41 +8,71 @@
  *   - a restart-core request handled by the shell (main.mjs).
  */
 import { app, ipcMain, shell } from "electron";
+import { existsSync } from "node:fs";
 import {
 	effectiveDshHome,
 	listPlugins,
 	installPlugin,
 	uninstallPlugin
 } from "../core/pluginctl.mjs";
-import { searchNpm, annotateWithBundle, annotateStars, annotateDownloads, describePackage } from "../core/registry.mjs";
+import { searchNpm, annotateWithBundle, annotateStars, annotateDownloads, describePackage, POPULAR_QUERY } from "../core/registry.mjs";
 import { analyzeManifest, bundledVersions } from "../core/compat.mjs";
 
 /** windows that should receive progress events (the panel windows). */
 let panelWindows = () => [];
 let executorPath = process.execPath;
 
-// 插件市场搜索结果池：key = `查询词\0只看dsh` → { pool, chunk }
-// “只看 dsh”需要在更多候选里过滤，否则一页常只有一两个；这里按需多取几屏并缓存。
+// 插件市场搜索结果池：key = `查询词\0只看dsh\0排序` → { pool, done }
+// “只看 dsh”需要跨更多候选过滤，否则一页常只有一两个；这里按需多取几屏并缓存。
 const marketPool = new Map();
 const MARKET_PAGE = 12;
+const MARKET_CHUNK = 24;
+// 覆盖多组关键词，减少“真插件没被搜到”的遗漏（npm 搜索只看名字/描述/关键词）。
+const COVER_QUERIES = [POPULAR_QUERY, "keywords:dsh-plugin", "keywords:deepseek-harness", "dsh plugin"];
 
-/** 取当前查询的候选池（不足一页就继续向后翻 npm 结果），可过滤 + 按星数排序。 */
+/** 本次搜索要扫的候选词集合：用户输入了就用它，否则用覆盖词集合。 */
+function queriesFor(query) {
+	return query === "" ? [...new Set(COVER_QUERIES)] : [query];
+}
+
+/**
+ * 取候选池：
+ * - 普通搜索：单查询按页取（快）；
+ * - 只看 dsh / 热门：多关键词并集 + 对候选打 bundle 标记后再过滤，最后只给入池项取星数
+ *   （避免对上百个无关包请求 GitHub 撞限流）。
+ */
 async function marketSearch(query, page, only, sort) {
 	const key = `${query}\x00${only ? 1 : 0}\x00${sort || ""}`;
 	let entry = marketPool.get(key);
 	if (!entry) {
-		entry = { pool: [], chunk: 0 };
+		entry = { pool: [], done: false };
 		marketPool.set(key, entry);
 	}
-	while (entry.pool.length < page * MARKET_PAGE && entry.chunk < 4) {
-		const { results } = await searchNpm(query, 24, entry.chunk * 24);
-		if (results.length === 0) break;
-		entry.chunk += 1;
-		const annotated = await annotateWithBundle(results);
-		await annotateStars(annotated);
-		for (const item of annotated) {
-			if (only && !item.dshBundle) continue;
-			entry.pool.push(item);
+	const multi = only || query === "";
+	const need = page * MARKET_PAGE;
+	if (multi && !entry.done) {
+		const seen = new Set(entry.pool.map((i) => i.name));
+		for (const q of queriesFor(query)) {
+			for (let chunk = 0; chunk < 2; chunk += 1) {
+				const { results } = await searchNpm(q, MARKET_CHUNK, chunk * MARKET_CHUNK);
+				if (results.length === 0) break;
+				const annotated = await annotateWithBundle(results);
+				for (const item of annotated) {
+					if (seen.has(item.name)) continue;
+					seen.add(item.name);
+					if (only && !item.dshBundle) continue;
+					entry.pool.push(item);
+				}
+				if (entry.pool.length >= need && chunk > 0) break;
+			}
+		}
+		entry.done = true;
+	} else if (!multi) {
+		while (entry.pool.length < need) {
+			const from = entry.pool.length;
+			const { results } = await searchNpm(query, MARKET_CHUNK, from);
+			if (results.length === 0) break;
+			entry.pool.push(...(await annotateWithBundle(results)));
 		}
 	}
 	const pool = entry.pool.slice();
@@ -50,12 +80,13 @@ async function marketSearch(query, page, only, sort) {
 		await annotateDownloads(pool);
 		pool.sort((a, b) => (b.downloads ?? -1) - (a.downloads ?? -1));
 	} else if (sort === "stars" || (only && !sort)) {
+		await annotateStars(pool);
 		pool.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
 	}
 	return {
 		results: pool.slice((page - 1) * MARKET_PAGE, page * MARKET_PAGE),
 		total: pool.length,
-		exhausted: entry.chunk >= 4
+		exhausted: entry.done || pool.length <= need
 	};
 }
 
@@ -190,6 +221,29 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 				compat
 			}),
 			`安装 ${spec}…（安装完成后需重启内核生效；该 profile 与 dsh web 共用）`
+		);
+	});
+
+	// 从 GitHub / 本地路径安装：插件市场只搜 npm，没上 npm 的插件（如 dsh-watcher）
+	// 搜不到，这里给一个直接安装入口。
+	ipcMain.handle("plugins:install-spec", async (_event, spec) => {
+		const s = typeof spec === "string" ? spec.trim() : "";
+		if (s === "") return { ok: false, error: "请填写 github:owner/repo 或本地文件夹路径" };
+		const isGit = /^(github:|git\+https:\/\/|https:\/\/github\.com\/|git@github\.com:)/iu.test(s);
+		const isFile = /^file:/iu.test(s) || /^[a-zA-Z]:[\\/]/u.test(s) || s.startsWith("./") || s.startsWith("../") || s.startsWith("\\\\");
+		if (!isGit && !isFile) {
+			return { ok: false, error: "只支持 github:owner/repo、https://github.com/… 或本地文件夹路径（也可 file:…）" };
+		}
+		if (isFile && !/^file:/iu.test(s) && !existsSync(s)) return { ok: false, error: `本地路径不存在：${s}` };
+		return await runWithEvents(
+			async () => ({
+				info: await installPlugin(s, {
+					dshHome: home(),
+					execPath: executorPath,
+					onOutput: (line) => broadcast({ kind: "line", text: line })
+				})
+			}),
+			`安装 ${s}…（GitHub 拉取可能较慢；装完需重启内核生效）`
 		);
 	});
 

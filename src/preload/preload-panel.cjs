@@ -11,6 +11,7 @@ const ALLOWED_INVOKE = [
 	"plugins:open-url",
 	"plugins:compat",
 	"plugins:install",
+	"plugins:install-spec",
 	"plugins:uninstall",
 	"plugins:restart-core"
 ];
