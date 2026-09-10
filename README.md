@@ -1,6 +1,6 @@
 # DSH Studio（桌面版）
 
-把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）打包成 **Windows 桌面应用**（Electron 壳 + 官方内核；版本号以 Releases 为准，当前 **0.1.26**）。
+把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）打包成 **Windows 桌面应用**（Electron 壳 + 官方内核；版本号以 Releases 为准，当前 **0.1.29**，内置内核 `@deepseek-ai/dsh` 0.1.5-rc.1）。
 
 **核心原则：内核与官方 `dsh web` 完全同源。** 桌面版只负责"外壳体验"，不修改、不注入任何内核语义：同一份 `@deepseek-ai/dsh` 依赖、同一套官方前端、同一个 `DSH_HOME`——桌面版与网页版的数据/插件/会话天然同步。
 
