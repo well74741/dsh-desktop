@@ -17,7 +17,8 @@ import {
 } from "../core/pluginctl.mjs";
 import { searchNpm, annotateWithBundle, annotateStars, annotateDownloads, describePackage, POPULAR_QUERY, fetchLatestKernelVersion } from "../core/registry.mjs";
 import semver from "semver";
-import { analyzeManifest, bundledVersions } from "../core/compat.mjs";
+import { join } from "node:path";
+import { analyzeManifest, bundledVersions, versionsFromScope, versionsFromPnpmVirtualStore, compatLevel } from "../core/compat.mjs";
 
 /** windows that should receive progress events (the panel windows). */
 let panelWindows = () => [];
@@ -84,6 +85,15 @@ async function marketSearch(query, page, only, sort) {
 		await annotateStars(pool);
 		pool.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
 	}
+	// 兼容性：对照“运行时真实可解析的内核版本”判断（rc 预发布按包含预发布规则比较）。
+	const bundled = runtimeKernelVersions();
+	for (const item of pool) {
+		const analysis = analyzeManifest(item, bundled);
+		item.compat = {
+			level: compatLevel(analysis),
+			notes: analysis.issues.slice(0, 3).map((issue) => `${issue.package} ${issue.range}（内核 ${issue.installed ?? "未随附"}）`)
+		};
+	}
 	return {
 		results: pool.slice((page - 1) * MARKET_PAGE, page * MARKET_PAGE),
 		total: pool.length,
@@ -102,6 +112,19 @@ function broadcast(payload) {
 	}
 }
 
+/**
+ * 运行时真实可解析的 @deepseek-ai 版本集合：应用随附的包 + DSH_HOME profile 里的包。
+ * 前端 UI 与插件按 profile 解析（应用包只带内核子集），只看应用包会误判为“未随附”。
+ */
+function runtimeKernelVersions() {
+	const homeDir = home();
+	const profileRoots = [join(homeDir, "profiles"), join(homeDir, "profiles", "web")];
+	return {
+		...bundledVersions(),
+		...versionsFromScope(profileRoots.map((root) => join(root, "node_modules", "@deepseek-ai"))),
+		...versionsFromPnpmVirtualStore(profileRoots)
+	};
+}
 function home() {
 	return effectiveDshHome();
 }
@@ -127,7 +150,7 @@ async function compatOf(spec) {
 	if (!PLAIN_NAME.test(name)) return null;
 	try {
 		const meta = await describePackage(name);
-		return analyzeManifest(meta);
+		return analyzeManifest(meta, runtimeKernelVersions());
 	} catch {
 		return null;
 	}
@@ -152,7 +175,7 @@ function announceCompat(compat) {
 export function registerPluginIpc({ onRestartCore } = {}) {
 	ipcMain.handle("plugins:info", async () => {
 		const info = listPlugins(home());
-		const bundled = bundledVersions();
+		const bundled = runtimeKernelVersions();
 		return {
 			ok: true,
 			home: info.home,
@@ -175,7 +198,7 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 
 	// 内核版本 + 是否有官方更新（内核随安装包内置，更新=发布新版安装包）。
 	ipcMain.handle("plugins:kernel-check", async () => {
-		const bundled = bundledVersions()["@deepseek-ai/dsh"] ?? null;
+		const bundled = runtimeKernelVersions()["@deepseek-ai/dsh"] ?? null;
 		const latest = await fetchLatestKernelVersion();
 		if (latest === null) return { ok: false, error: "无法访问 npm 源（国内网络常抖动），可稍后重试", bundled };
 		let hasUpdate = false;

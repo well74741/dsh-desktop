@@ -182,7 +182,14 @@ export async function annotateWithBundle(results) {
 		const item = results[index];
 		try {
 			const meta = await describePackage(item.name);
-			out[index] = { ...item, dshBundle: meta.dshBundle, bundlePatch: meta.bundlePatch, license: meta.license };
+			out[index] = {
+				...item,
+				dshBundle: meta.dshBundle,
+				bundlePatch: meta.bundlePatch,
+				license: meta.license,
+				// 供兼容性判断（对照随应用分发的内核版本）
+				peerDependencies: meta.peerDependencies ?? {}
+			};
 		} catch {
 			out[index] = { ...item, dshBundle: false, license: null };
 		}

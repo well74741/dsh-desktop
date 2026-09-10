@@ -79,16 +79,78 @@ export function bundledVersions() {
 	return out;
 }
 
+/** 扫描一组 `@deepseek-ai` scope 目录并合并版本（后者覆盖前者）。 */
+export function versionsFromScope(scopeDirs = []) {
+	const out = {};
+	for (const scopeDir of scopeDirs) {
+		let entries;
+		try {
+			entries = readdirSync(scopeDir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+			try {
+				const manifest = JSON.parse(readFileSync(join(scopeDir, entry.name, "package.json"), "utf8"));
+				if (manifest.name && manifest.version) out[manifest.name] = manifest.version;
+			} catch {
+				/* skip */
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * 扫描 profile 的 pnpm 虚拟 store（`node_modules/.pnpm/@deepseek-ai+<pkg>@<ver>/...`）。
+ * 官方 CLI 用 pnpm 安装 profile，传递依赖只存在于虚拟 store 里，顶层 scope 看不到。
+ */
+export function versionsFromPnpmVirtualStore(profileRoots = []) {
+	const out = {};
+	for (const root of profileRoots) {
+		const storeDir = join(root, "node_modules", ".pnpm");
+		let entries;
+		try {
+			entries = readdirSync(storeDir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			if (!entry.isDirectory() || !entry.name.startsWith("@deepseek-ai+")) continue;
+			const scopeDir = join(storeDir, entry.name, "node_modules", "@deepseek-ai");
+			Object.assign(out, versionsFromScope([scopeDir]));
+		}
+	}
+	return out;
+}
+
 /** Whether an installed version satisfies a peer range (robust to junk ranges). */
 export function rangeSatisfies(installed, range) {
 	if (range === undefined || range === null || range === "*" || range === "") return true;
 	if (installed === undefined) return false;
 	try {
-		return satisfies(installed, range);
+		// includePrerelease：内核与插件都在发 rc 版本，严格 semver 会把
+		// "0.1.5-rc.1 对 ^0.1.2-rc.1" 误判为不满足（预发布补丁号必须相同）。
+		if (satisfies(installed, range, { includePrerelease: true })) return true;
 	} catch {
-		// Unparseable range: give the benefit of the doubt.
 		return true;
 	}
+	try {
+		return satisfies(installed, range);
+	} catch {
+		return true;
+	}
+}
+
+/** 一眼可读的兼容等级：ok / warn / danger / none（未声明 @deepseek-ai 依赖）。 */
+export function compatLevel(analysis) {
+	const issues = analysis?.issues ?? [];
+	if (issues.some((issue) => issue.kind === "danger")) return "danger";
+	if (issues.length > 0) return "warn";
+	const peers = Object.keys(analysis?.peerDependencies ?? {});
+	if (peers.length === 0) return "none";
+	return "ok";
 }
 
 /**
@@ -129,6 +191,7 @@ export function analyzeManifest(meta, bundled = bundledVersions()) {
 		name: meta.name,
 		version: meta.version,
 		bundle: meta.dshBundle,
+		peerDependencies: peers,
 		issues,
 		ok: issues.every((issue) => issue.kind !== "danger")
 	};
