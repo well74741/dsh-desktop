@@ -10,6 +10,10 @@ directories:
   output: release
   buildResources: build
 
+# 直接用本地已安装的 Electron（避免打包时再去 GitHub 下载 Electron 发行包：
+# 国内网络对 github 的 TLS 校验常失败，且能离线/加速构建）。
+electronDist: node_modules/electron/dist
+
 # asar is disabled on purpose: the harness core is spawned as a plain-Node
 # child (ELECTRON_RUN_AS_NODE) of this same executable, and plain Node cannot
 # read files inside app.asar. Keep app files on disk so the kernel entry and
