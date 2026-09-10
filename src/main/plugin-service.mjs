@@ -53,7 +53,7 @@ async function marketSearch(query, page, only, sort) {
 	if (multi && !entry.done) {
 		const seen = new Set(entry.pool.map((i) => i.name));
 		for (const q of queriesFor(query)) {
-			for (let chunk = 0; chunk < 2; chunk += 1) {
+			for (let chunk = 0; chunk < 3; chunk += 1) {
 				const { results } = await searchNpm(q, MARKET_CHUNK, chunk * MARKET_CHUNK);
 				if (results.length === 0) break;
 				const annotated = await annotateWithBundle(results);
