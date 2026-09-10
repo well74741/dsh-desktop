@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, Notification, powerSaveBlocker, screen, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, Notification, powerSaveBlocker, screen, session, shell } from "electron";
 import { dirname, join } from "node:path";
 import { networkInterfaces } from "node:os";
 import { connect, createServer } from "node:net";
@@ -1090,6 +1090,20 @@ void (async () => {
 
 	await app.whenReady();
 	log(`${APP_NAME} starting (electron ${process.versions.electron}, node ${process.versions.node})`);
+
+	// 版本升级后清一次网页缓存：旧版本缓存里的模块地址(rev=…)在新版内核上不存在，
+	// 会被兜底成首页 HTML → 界面出现 “Failed to load plugins”。
+	try {
+		const st = loadSettings();
+		if (st.lastRunVersion !== appVersion()) {
+			await session.defaultSession.clearCache();
+			await session.defaultSession.clearStorageData({ storages: ["cachestorage", "serviceworkers"] });
+			saveSettings({ lastRunVersion: appVersion() });
+			log(`web cache cleared after version change -> ${appVersion()}`);
+		}
+	} catch (error) {
+		log(`cache clear skipped: ${String(error?.message ?? error)}`);
+	}
 
 	// Windows notifications/taskbar identity + deep-link protocol (packaged).
 	if (app.isPackaged) {
