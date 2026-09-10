@@ -43,16 +43,30 @@ function log(message) {
 }
 
 /**
- * Absolute path of the bundled pnpm CLI. pnpm's package "exports" resolves the
+ * Absolute path of a bundled pnpm CLI. pnpm's package "exports" resolves the
  * bare specifier to its own package.json (running that file is a silent
  * no-op), so parse the manifest and take the declared `bin.pnpm` path instead.
+ * Two majors are bundled (`pnpm` = 11.x, `pnpm10` = 10.x) so we can run the one
+ * that matches the profile's recorded packageManager — pnpm refuses to operate
+ * on a store linked by a different major.
  */
-export function pnpmCliPath() {
-	const packageJsonPath = fileURLToPath(import.meta.resolve("pnpm"));
+export function pnpmCliPath(pkg = "pnpm") {
+	const packageJsonPath = fileURLToPath(import.meta.resolve(pkg));
 	const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 	const bin = manifest.bin?.pnpm;
 	if (typeof bin === "string") return join(dirname(packageJsonPath), bin);
-	throw new Error("pnpm package declares no bin.pnpm entry");
+	throw new Error(`${pkg} package declares no bin.pnpm entry`);
+}
+
+/** Major version of the pnpm that created the profile's node_modules, or null. */
+function profilePnpmMajor(profileDir) {
+	try {
+		const text = readFileSync(join(profileDir, "node_modules", ".modules.yaml"), "utf8");
+		const m = /packageManager"?:\s*"?pnpm@(\d+)/u.exec(text);
+		return m ? Number(m[1]) : null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -140,35 +154,24 @@ function reconcilePlugins(before, profileDir) {
 	return after;
 }
 
-/**
- * 读取 profile 里 pnpm 记录的 store 路径。
- * 官方 CLI(pnpm 11) 与桌面内置 pnpm(10) 的默认 store 版本目录不同，
- * 不显式指定就会出现 ERR_PNPM_UNEXPECTED_STORE（装/卸都失败）。
- */
-function profileStoreDir(profileDir) {
-	try {
-		const text = readFileSync(join(profileDir, "node_modules", ".modules.yaml"), "utf8");
-		const m = /"?storeDir"?:\s*"?([^"\r\n]+)"?/u.exec(text);
-		const value = m ? m[1].trim() : "";
-		return value === "" ? null : value;
-	} catch {
-		return null;
-	}
-}
-
 /** Run pnpm in the profile directory; streams output via onOutput when given. */
 async function runPnpm(args, { cwd, execPath, env, onOutput } = {}) {
 	const node = execPath ?? process.execPath;
-	const storeDir = cwd === undefined ? null : profileStoreDir(cwd);
-	const finalArgs = storeDir === null ? args : ["--store-dir", storeDir, ...args];
-	if (storeDir !== null) onOutput?.(`（使用 profile 已有 store：${storeDir}）`);
+	// 用与 profile 相同的 pnpm 大版本：跨大版本会因 store 布局不同而拒绝操作
+	// （ERR_PNPM_UNEXPECTED_STORE）。profile 由官方 CLI(pnpm 11) 创建时用内置 11；
+	// 由旧版桌面(pnpm 10) 创建时用内置的 pnpm10。
+	const major = cwd === undefined ? null : profilePnpmMajor(cwd);
+	const pkg = major === 10 ? "pnpm10" : "pnpm";
+	if (major !== null && major !== 10 && major !== 11) {
+		onOutput?.(`（提示：profile 记录的 pnpm 大版本为 ${major}，将尝试使用内置 pnpm）`);
+	}
 	const childEnv = {
 		...process.env,
 		...env,
 		// Under Electron this is the executable itself acting as plain Node.
 		...(execPath !== undefined ? { ELECTRON_RUN_AS_NODE: "1" } : {})
 	};
-	const child = spawn(node, [pnpmCliPath(), ...finalArgs], {
+	const child = spawn(node, [pnpmCliPath(pkg), ...args], {
 		cwd,
 		env: childEnv,
 		stdio: ["ignore", "pipe", "pipe"],
