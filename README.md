@@ -1,6 +1,6 @@
 # DSH Studio（桌面版）
 
-把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）打包成 **Windows 桌面应用**（Electron 壳 + 官方内核，当前版本 **0.1.24**）。
+把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）打包成 **Windows 桌面应用**（Electron 壳 + 官方内核；版本号以 Releases 为准，当前 **0.1.26**）。
 
 **核心原则：内核与官方 `dsh web` 完全同源。** 桌面版只负责"外壳体验"，不修改、不注入任何内核语义：同一份 `@deepseek-ai/dsh` 依赖、同一套官方前端、同一个 `DSH_HOME`——桌面版与网页版的数据/插件/会话天然同步。
 
@@ -68,3 +68,4 @@ Electron Main（桌面壳，src/main/）
 - 桌面版从 0.1.3 起已把上游 peerDependencies 补齐为根依赖，装机级验证须在工程目录外进行（Node 会向上解析开发树导致假通过）。
 - **开发依赖用 pnpm 安装**（仓库是 pnpm 结构）：不要用 `npm ci`/`npm install` 覆盖（会损坏 pnpm 的 node_modules，曾导致 `npm start` 起不来）；跑 `pnpm install` 即可（构建环境仍是 npm ci，见 release.yml）。
 - 官方可公开安装的 dsh 插件目前较少（多数为内置模块），插件市场"只看 dsh"列出的是已发现的全部，正常现象。
+- **升级后的界面缓存**：版本变化时应用会自动清一次网页缓存；若界面仍报 `Failed to load plugins`，应用会**自动清缓存并强制重载一次**（自愈），无需手动删 `%APPDATA%\DSH Studio` 里的缓存目录。
