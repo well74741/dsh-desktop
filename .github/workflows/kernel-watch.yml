@@ -52,6 +52,14 @@ jobs:
         if: hashFiles('.kernel-sync-version') != ''
         run: npm ci
 
+      # 显式补跑内核的 shell 启动助手生成脚本（npm 新版本默认跳过未批准的安装脚本）。
+      - name: Ensure harness spawn helper
+        if: hashFiles('.kernel-sync-version') != ''
+        shell: pwsh
+        run: |
+          $script = "node_modules/@deepseek-ai/dsh-subprocess-local/scripts/ensure-spawn-helper.mjs"
+          if (Test-Path $script) { node $script } else { Write-Host "spawn helper script not present — skipped" }
+
       - name: Build NSIS installer
         if: hashFiles('.kernel-sync-version') != ''
         env:

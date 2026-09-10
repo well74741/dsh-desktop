@@ -76,6 +76,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # npm 新版本会跳过未批准的依赖安装脚本，而内核的 shell 工具依赖
+      # @deepseek-ai/dsh-subprocess-local 的 postinstall 生成启动助手；
+      # 这里显式补跑一次，避免“打包出来的应用里 shell 起不来”。
+      - name: Ensure harness spawn helper
+        shell: pwsh
+        run: |
+          $script = "node_modules/@deepseek-ai/dsh-subprocess-local/scripts/ensure-spawn-helper.mjs"
+          if (Test-Path $script) { node $script } else { Write-Host "spawn helper script not present (kernel changed?) — skipped" }
+
       # Build only — publishing happens in the next step as ONE deterministic
       # Release. (electron-builder's own incremental publish created duplicate
       # Release rows with split assets, which broke auto-update.)

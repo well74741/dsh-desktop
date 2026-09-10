@@ -140,16 +140,35 @@ function reconcilePlugins(before, profileDir) {
 	return after;
 }
 
+/**
+ * 读取 profile 里 pnpm 记录的 store 路径。
+ * 官方 CLI(pnpm 11) 与桌面内置 pnpm(10) 的默认 store 版本目录不同，
+ * 不显式指定就会出现 ERR_PNPM_UNEXPECTED_STORE（装/卸都失败）。
+ */
+function profileStoreDir(profileDir) {
+	try {
+		const text = readFileSync(join(profileDir, "node_modules", ".modules.yaml"), "utf8");
+		const m = /"?storeDir"?:\s*"?([^"\r\n]+)"?/u.exec(text);
+		const value = m ? m[1].trim() : "";
+		return value === "" ? null : value;
+	} catch {
+		return null;
+	}
+}
+
 /** Run pnpm in the profile directory; streams output via onOutput when given. */
 async function runPnpm(args, { cwd, execPath, env, onOutput } = {}) {
 	const node = execPath ?? process.execPath;
+	const storeDir = cwd === undefined ? null : profileStoreDir(cwd);
+	const finalArgs = storeDir === null ? args : ["--store-dir", storeDir, ...args];
+	if (storeDir !== null) onOutput?.(`（使用 profile 已有 store：${storeDir}）`);
 	const childEnv = {
 		...process.env,
 		...env,
 		// Under Electron this is the executable itself acting as plain Node.
 		...(execPath !== undefined ? { ELECTRON_RUN_AS_NODE: "1" } : {})
 	};
-	const child = spawn(node, [pnpmCliPath(), ...args], {
+	const child = spawn(node, [pnpmCliPath(), ...finalArgs], {
 		cwd,
 		env: childEnv,
 		stdio: ["ignore", "pipe", "pipe"],
