@@ -67,6 +67,8 @@ let readyUrl = null;
 let disposed = false;
 let coreExitCount = 0;
 let loadedUrl = null;
+// 界面因升级后缓存过期报错时，只自愈一次（清缓存 + 强制重载）。
+let uiCacheRecovered = false;
 // Set after repeated desktop-shell/core failures: keep going as the web-mode
 // fallback (same kernel, opened in the default browser, no app window).
 let webFallback = false;
@@ -614,6 +616,28 @@ function createWindow(url) {
 	// Track in-page navigation so "open in browser" can carry the current view.
 	mainWindow.webContents.on("did-navigate-in-page", (_event, url) => {
 		if (typeof url === "string" && url.startsWith("http")) loadedUrl = url;
+	});
+
+	// 自愈：升级后窗口里的旧模块缓存会让界面报 “Failed to load plugins”
+	// （旧 rev 地址已不存在 → 兜底成首页 HTML → 导入失败）。检测到就清一次
+	// 网页缓存并强制重载，用户无感恢复；每次运行最多自愈一次，避免死循环。
+	mainWindow.webContents.on("console-message", (_event, _level, message) => {
+		const text = String(message ?? "");
+		if (!text.includes("Failed to load plugins") || uiCacheRecovered) return;
+		uiCacheRecovered = true;
+		log("UI reported 'Failed to load plugins' — clearing web cache and reloading once");
+		void (async () => {
+			try {
+				await session.defaultSession.clearCache();
+				await session.defaultSession.clearStorageData({ storages: ["cachestorage", "serviceworkers"] });
+			} catch (error) {
+				log(`auto cache clear failed: ${String(error?.message ?? error)}`);
+			}
+			if (mainWindow !== null && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.reloadIgnoringCache();
+				notify("DSH Studio", "检测到界面缓存过期，已自动清理并重新加载。");
+			}
+		})();
 	});
 
 	mainWindow.loadURL(url);
