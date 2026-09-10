@@ -15,7 +15,8 @@ import {
 	installPlugin,
 	uninstallPlugin
 } from "../core/pluginctl.mjs";
-import { searchNpm, annotateWithBundle, annotateStars, annotateDownloads, describePackage, POPULAR_QUERY } from "../core/registry.mjs";
+import { searchNpm, annotateWithBundle, annotateStars, annotateDownloads, describePackage, POPULAR_QUERY, fetchLatestKernelVersion } from "../core/registry.mjs";
+import semver from "semver";
 import { analyzeManifest, bundledVersions } from "../core/compat.mjs";
 
 /** windows that should receive progress events (the panel windows). */
@@ -170,6 +171,20 @@ export function registerPluginIpc({ onRestartCore } = {}) {
 
 	ipcMain.handle("plugins:list", async () => {
 		return runWithEvents(async () => ({ info: listPlugins(home()) }), "读取插件清单…");
+	});
+
+	// 内核版本 + 是否有官方更新（内核随安装包内置，更新=发布新版安装包）。
+	ipcMain.handle("plugins:kernel-check", async () => {
+		const bundled = bundledVersions()["@deepseek-ai/dsh"] ?? null;
+		const latest = await fetchLatestKernelVersion();
+		if (latest === null) return { ok: false, error: "无法访问 npm 源（国内网络常抖动），可稍后重试", bundled };
+		let hasUpdate = false;
+		try {
+			hasUpdate = typeof bundled === "string" && semver.valid(bundled) !== null && semver.gt(latest.version, bundled);
+		} catch {
+			hasUpdate = false;
+		}
+		return { ok: true, bundled, latest: latest.version, source: latest.source, hasUpdate };
 	});
 
 	// text "" = 热门（推荐）feed；page 从 1 开始；only=true 只看 dsh；sort=stars|downloads。

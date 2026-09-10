@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 const ALLOWED_INVOKE = [
 	"plugins:info",
 	"plugins:list",
+	"plugins:kernel-check",
 	"plugins:search",
 	"plugins:describe",
 	"plugins:open-url",

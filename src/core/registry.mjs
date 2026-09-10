@@ -137,6 +137,24 @@ export async function searchNpm(text, size = 12, from = 0) {
 	};
 }
 
+/** 官方最新 @deepseek-ai/dsh 版本（官方源优先，失败换国内镜像）；取不到返回 null。 */
+export async function fetchLatestKernelVersion() {
+	for (const base of [REGISTRY, "https://registry.npmmirror.com"]) {
+		try {
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), 10000);
+			const res = await fetch(`${base}/@deepseek-ai/dsh/latest`, { headers: { accept: "application/json" }, signal: controller.signal });
+			clearTimeout(timer);
+			if (!res.ok) continue;
+			const body = await res.json();
+			if (typeof body?.version === "string" && body.version !== "") return { version: body.version, source: base };
+		} catch {
+			/* 试下一个源 */
+		}
+	}
+	return null;
+}
+
 /** Latest manifest of one package: description, license, dsh.bundle, peers, links. */
 export async function describePackage(name) {
 	const data = await getJson(`${REGISTRY}/${registryName(name)}/latest`);

@@ -253,6 +253,14 @@
     const info = res.info;
     const items = info.inventory;
     view.innerHTML = `
+      <div class="card" style="margin-bottom:10px">
+        <div class="meta2">内核（随附的官方 dsh）：<b id="k-bundled">读取中…</b></div>
+        <div class="row" style="margin-top:6px;gap:6px;align-items:center">
+          <button id="btn-kernel-check">检查内核更新</button>
+          <button id="btn-kernel-npm">打开 npm 页面</button>
+          <span class="meta2" id="k-result"></span>
+        </div>
+      </div>
       <div class="meta2" style="margin-bottom:10px">DSH_HOME: ${esc(info.home)}<br/>Profile: <b>${esc(info.profile)}</b>（与 dsh web 共用，安装后双方下次启动即同步）<br/>目录: ${esc(info.profileDir)}</div>
       ${items.length === 0 ? '<div class="empty">尚未安装任何额外依赖（bundles 层由官方提供）</div>' : ""}
       ${items.map((p) => `
@@ -269,7 +277,29 @@
       ${info.bundles.length ? `<div class="meta2" style="margin-top:8px">bundles 层顺序: ${esc(info.bundles.join(" → "))}</div>` : ""}`;
     view.querySelectorAll("[data-uninstall]").forEach((btn) => btn.addEventListener("click", () => uninstall(btn.dataset.uninstall)));
     view.querySelectorAll("[data-compat]").forEach((btn) => btn.addEventListener("click", () => checkCompat(btn.dataset.compat)));
+    const kc = $("btn-kernel-check");
+    if (kc) kc.addEventListener("click", checkKernel);
+    const kn = $("btn-kernel-npm");
+    if (kn) kn.addEventListener("click", () => void api.invoke("plugins:open-url", "https://www.npmjs.com/package/@deepseek-ai/dsh"));
+    void api.invoke("plugins:info").then((r) => {
+      const el = $("k-bundled");
+      if (el && r && r.ok && r.core) el.textContent = `${r.core.dsh ?? "?"}（随附 @deepseek-ai 包 ${r.core.scopePackages ?? "?"} 个）`;
+    }).catch(() => {});
     setStatus("");
+  }
+
+  /** 检查内核是否有官方更新（内核随安装包内置 → 有更新即等待新版安装包）。 */
+  async function checkKernel() {
+    const out = $("k-result");
+    if (out) out.textContent = "检查中…";
+    const res = await call("plugins:kernel-check");
+    if (!res.ok) { if (out) out.textContent = res.error; return; }
+    if (res.hasUpdate) {
+      if (out) out.textContent = `内置 ${res.bundled} → 官方最新 ${res.latest}（有新版本 ⬆）`;
+      setStatus("检测到官方内核更新：新版安装包会由自动巡检/发布流程产出，之后用「检查更新」升级即可。");
+    } else {
+      if (out) out.textContent = `内置 ${res.bundled} 已是最新（官方 ${res.latest}）✓`;
+    }
   }
 
   async function uninstall(name) {
