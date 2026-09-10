@@ -55,7 +55,20 @@ function readJson(path) {
 
 async function main() {
 	const requested = process.argv[2]?.trim() ?? "";
-	const target = requested !== "" ? requested : await latestDshVersion();
+	// 例行巡检的“查官方版本”只是尽力而为：网络抖动/源不可达时安全跳过，
+	// 不要让定时任务报红（真正的新版本会在下次巡检时被发现）。
+	let target;
+	if (requested !== "") {
+		target = requested;
+	} else {
+		try {
+			target = await latestDshVersion();
+		} catch (error) {
+			console.log(`kernel check skipped (registry unreachable): ${String(error?.message ?? error)}`);
+			clearMarker();
+			return;
+		}
+	}
 	const pkg = readJson(PKG_PATH);
 	const pinned = pkg.dependencies?.["@deepseek-ai/dsh"] ?? "";
 	console.log(`target official kernel: ${target}  (repo pins: ${pinned})`);
